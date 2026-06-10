@@ -136,9 +136,9 @@ export default function ContactPage({ selection, onBack }) {
                   <div className="w-16 h-16 rounded-full border-2 border-[#c49a3c] flex items-center justify-center text-3xl">
                     ✓
                   </div>
-                  <p className="text-[#c49a3c] text-sm tracking-widest uppercase">Email Opened</p>
+                  <p className="text-[#c49a3c] text-sm tracking-widest uppercase">Thank you!</p>
                   <p className="text-white/50 text-sm">
-                    Your email client has been opened with the enquiry pre-filled. Just hit Send!
+                    Your enquiry has been submitted successfully. Our team will contact you shortly.
                   </p>
                   <button
                     onClick={() => setSent(false)}
