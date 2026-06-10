@@ -4,7 +4,7 @@ import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
 import { OrbitControls, useGLTF } from '@react-three/drei';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
-import PageBackground from '../components/PageBackground';
+// import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 /* ── 360° equirectangular background ──
