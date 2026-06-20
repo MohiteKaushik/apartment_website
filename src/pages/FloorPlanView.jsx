@@ -36,16 +36,16 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       <NavBar step={5} onBack={onBack} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden">
 
         {/* Floor plan image area */}
         <motion.div
-          className="flex-1 flex items-center justify-center p-8"
+          className="flex-1 flex items-center justify-center p-4 md:p-8"
           initial={{ opacity: 0, scale: 0.94 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.2, duration: 0.6 }}
         >
-          <div className="relative w-full max-w-2xl aspect-square glass-dark rounded-2xl overflow-hidden border border-white/8 flex items-center justify-center">
+          <div className="relative w-full max-w-xs sm:max-w-md md:max-w-2xl aspect-square max-h-[42vh] md:max-h-none glass-dark rounded-2xl overflow-hidden border border-white/8 flex items-center justify-center">
 
             {/* Loading spinner until image loads */}
             <AnimatePresence>
@@ -91,14 +91,14 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
 
         {/* Right info panel */}
         <motion.div
-          className="w-80 flex flex-col justify-center p-8 border-l border-white/6 gap-5"
+          className="w-full md:w-80 flex flex-col p-4 md:p-8 border-t md:border-t-0 md:border-l border-white/6 gap-4"
           initial={{ opacity: 0, x: 30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3 }}
         >
           <div>
             <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">Unit Details</p>
-            <h2 className="text-white text-3xl font-light mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h2 className="text-white text-2xl md:text-3xl font-light mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
               {flat?.type}
             </h2>
             <p className="text-white/40 text-sm">
@@ -119,8 +119,8 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
             </div>
           </div>
 
-          {/* Room breakdown */}
-          <div className="glass-dark rounded-xl p-4 border border-white/8">
+          {/* Room breakdown — desktop only (too many rows on mobile) */}
+          <div className="hidden md:block glass-dark rounded-xl p-4 border border-white/8">
             <p className="text-white/35 text-xs uppercase tracking-wider mb-3">Room Breakdown</p>
             <div className="space-y-2.5">
               {ROOMS.map((room, i) => (

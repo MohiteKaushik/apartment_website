@@ -356,11 +356,11 @@ export default function TowerSelection({ onSelectTower }) {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         <NavBar step={2} />
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-col-reverse sm:flex-row flex-1 overflow-hidden">
 
           {/* ── 3D Viewer ── */}
           <motion.div
-            className="flex-1 relative"
+            className="flex-1 relative min-h-0"
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: 0.3, duration: 0.7 }}
@@ -379,7 +379,7 @@ export default function TowerSelection({ onSelectTower }) {
                   initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
                   transition={{ delay: 1.5 }}
                 >
-                  <span className="text-white/30 text-xs tracking-wider">Hover a tower to highlight it</span>
+                  <span className="text-white/30 text-xs tracking-wider">Tap or hover a tower to explore</span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -463,8 +463,8 @@ export default function TowerSelection({ onSelectTower }) {
           </motion.div>
 
           {/* ── Tower cards ── */}
-          <div className="w-80 flex flex-col justify-center gap-4 p-6 overflow-y-auto">
-            <motion.div className="mb-2"
+          <div className="w-full sm:w-80 flex-shrink-0 flex flex-col sm:justify-center gap-3 p-4 sm:p-6 overflow-y-auto max-h-[44vh] sm:max-h-none">
+            <motion.div className="hidden sm:block mb-2"
               initial={{ opacity: 0, y: -15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
               <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">Select Your Tower</p>
               <h2 className="text-white text-4xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
@@ -472,6 +472,8 @@ export default function TowerSelection({ onSelectTower }) {
               </h2>
               <div className="w-10 h-px bg-[#c49a3c]/60 mt-3" />
             </motion.div>
+            {/* Mobile compact title */}
+            <p className="flex sm:hidden text-[#c49a3c] text-xs tracking-[0.3em] uppercase">Choose Your Tower</p>
 
             {TOWERS.map((tower, i) => {
               const isHovered = hoveredId === tower.id;

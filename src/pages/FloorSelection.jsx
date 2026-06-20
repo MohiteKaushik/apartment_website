@@ -27,11 +27,11 @@ export default function FloorSelection({ selection, onSelectFloor, onBack }) {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       <NavBar step={3} onBack={onBack} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col sm:flex-row flex-1 overflow-y-auto sm:overflow-hidden">
 
-        {/* Left info panel */}
+        {/* Left info panel — desktop only */}
         <motion.div
-          className="w-72 flex flex-col justify-center p-8 border-r border-white/6"
+          className="hidden sm:flex w-72 flex-col justify-center p-8 border-r border-white/6"
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.2 }}
@@ -81,13 +81,22 @@ export default function FloorSelection({ selection, onSelectFloor, onBack }) {
 
         {/* Floor grid */}
         <motion.div
-          className="flex-1 flex items-center justify-center p-8 overflow-y-auto"
+          className="flex-1 flex flex-col items-center justify-start sm:justify-center p-4 sm:p-8 overflow-y-auto"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.35 }}
         >
+          {/* Mobile inline title (hidden on desktop where left panel shows it) */}
+          <div className="sm:hidden w-full max-w-2xl mb-4">
+            <p className="text-[#c49a3c] text-xs tracking-widest uppercase mb-1">{selection.tower?.name}</p>
+            <h2 className="text-white text-2xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
+              Select Floor
+            </h2>
+            <div className="w-8 h-px bg-[#c49a3c]/60 mt-2" />
+          </div>
+
           <div className="w-full max-w-2xl">
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
               {floors.map((floor) => {
                 const zone = zoneFor(floor);
                 const isHov = hovered === floor;

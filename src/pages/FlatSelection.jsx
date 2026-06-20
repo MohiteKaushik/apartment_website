@@ -33,16 +33,16 @@ export default function FlatSelection({ selection, onSelectFlat, onBack }) {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
       <NavBar step={4} onBack={onBack} />
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden">
 
         {/* Floor plate diagram */}
         <motion.div
-          className="flex-1 flex items-center justify-center p-8"
+          className="flex-1 flex items-center justify-center p-4 md:p-8"
           initial={{ opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ delay: 0.25 }}
         >
-          <div className="relative w-full max-w-lg aspect-square">
+          <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-lg aspect-square">
             {/* Outer border */}
             <div className="absolute inset-0 rounded-xl border border-white/10 glass-dark" />
 
@@ -102,7 +102,7 @@ export default function FlatSelection({ selection, onSelectFlat, onBack }) {
         </motion.div>
 
         {/* Right panel */}
-        <div className="w-80 flex flex-col justify-center p-8 border-l border-white/6 gap-3">
+        <div className="w-full md:w-80 flex flex-col p-4 md:p-8 border-t md:border-t-0 md:border-l border-white/6 gap-3">
           <motion.div
             className="mb-2"
             initial={{ opacity: 0, y: -10 }}
@@ -112,7 +112,7 @@ export default function FlatSelection({ selection, onSelectFlat, onBack }) {
             <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">
               Floor {selection.floor} · {selection.tower?.name}
             </p>
-            <h2 className="text-white text-3xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <h2 className="text-white text-2xl md:text-3xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
               Select Unit
             </h2>
             <div className="w-8 h-px bg-[#c49a3c]/60 mt-3" />

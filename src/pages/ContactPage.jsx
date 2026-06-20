@@ -66,7 +66,7 @@ export default function ContactPage({ selection, onBack }) {
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
         <NavBar step={6} onBack={onBack} />
 
-        <div className="flex-1 overflow-y-auto flex items-center justify-center p-6">
+        <div className="flex-1 overflow-y-auto flex items-center justify-center p-4 sm:p-6">
           <div className="w-full max-w-3xl grid grid-cols-1 md:grid-cols-2 gap-6">
 
             {/* ── Left: Contact info ── */}
@@ -186,7 +186,7 @@ export default function ContactPage({ selection, onBack }) {
                   </motion.button>
 
                   <p className="text-white/20 text-[10px] text-center">
-                    Opens your email app pre-filled · No account needed
+                    Submitted securely · We'll respond within 24 hours
                   </p>
                 </form>
               )}

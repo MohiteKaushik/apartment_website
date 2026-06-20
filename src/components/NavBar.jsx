@@ -6,14 +6,14 @@ const STEPS = ['Intro', 'Tower', 'Floor', 'Unit', 'Floor Plan', 'Walkthrough'];
 export default function NavBar({ step, onBack }) {
   return (
     <motion.nav
-      className="relative flex items-center justify-between px-8 py-4 z-10 border-b border-white/6"
+      className="relative flex items-center justify-between px-3 sm:px-8 py-3 sm:py-4 z-10 border-b border-white/6"
       style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
       initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Logo + back */}
-      <div className="flex items-center gap-4 w-40">
+      {/* Left: back + logo */}
+      <div className="flex items-center gap-3 flex-shrink-0">
         {onBack && (
           <motion.button
             onClick={onBack}
@@ -26,15 +26,15 @@ export default function NavBar({ step, onBack }) {
           </motion.button>
         )}
         <span
-          className="text-white text-xl font-light tracking-[0.25em]"
+          className="text-white text-lg sm:text-xl font-light tracking-[0.25em]"
           style={{ fontFamily: "'Playfair Display', serif" }}
         >
           VAYAM
         </span>
       </div>
 
-      {/* Step progress */}
-      <div className="flex items-center gap-1.5">
+      {/* Desktop: full step progress */}
+      <div className="hidden sm:flex items-center gap-1.5">
         {STEPS.slice(1).map((label, i) => {
           const stepNum = i + 2;
           const active  = step === stepNum;
@@ -73,8 +73,13 @@ export default function NavBar({ step, onBack }) {
         })}
       </div>
 
-      {/* Right label */}
-      <div className="w-40 flex justify-end">
+      {/* Mobile: compact current step name */}
+      <span className="flex sm:hidden text-[#c49a3c] text-[11px] tracking-[0.2em] uppercase">
+        {STEPS[step - 1] || ''}
+      </span>
+
+      {/* Right: desktop only */}
+      <div className="hidden sm:flex w-40 justify-end">
         <span className="text-white/15 text-[10px] tracking-[0.25em] uppercase">Luxury Residences</span>
       </div>
     </motion.nav>

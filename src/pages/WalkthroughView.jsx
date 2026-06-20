@@ -2,17 +2,22 @@ import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, Environment } from '@react-three/drei';
+import { XR, XROrigin, createXRStore, useXRInputSourceState } from '@react-three/xr';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
 import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 
+/* Module-level XR store — one instance for the whole session */
+const xrStore = createXRStore();
+
 /* ─────────────────────────────────────────────────────────
-   First-person camera
+   First-person camera (non-VR)
    • WASD / arrow keys for keyboard users
    • externalKeysRef: D-pad buttons inject keys here
    • Touch-drag on canvas: look around (mobile)
    • Mouse pointer-lock: look around (desktop)
+   • Automatically yields control when a VR session is active
 ───────────────────────────────────────────────────────── */
 function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrollRef }) {
   const { camera, gl } = useThree();
@@ -24,13 +29,6 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
   useEffect(() => {
     camera.position.set(0, eyeHeightRef.current, 4);
   }, [camera, eyeHeightRef]);
-
-  // ── Scroll-wheel zoom ──
-  // scrollRef is set by the parent div (outside Canvas) via a native wheel listener.
-  // We read it each frame and apply movement, then reset.
-  useFrame((_, delta) => {
-    // (Applied in the combined useFrame below)
-  });
 
   // Keyboard
   useEffect(() => {
@@ -48,7 +46,6 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
   useEffect(() => {
     const canvas = gl.domElement;
 
-    // ── Pointer lock (desktop) ──
     const onPLChange = () => {
       pointerLocked.current = document.pointerLockElement === canvas;
     };
@@ -62,7 +59,6 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
     document.addEventListener('pointerlockchange', onPLChange);
     document.addEventListener('mousemove', onMouseMove);
 
-    // ── Touch drag look (mobile/tablet) ──
     let lastTouch = null;
     const onTouchStart = (e) => {
       if (e.touches.length === 1)
@@ -93,11 +89,13 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
   }, [gl]);
 
   useFrame((_, delta) => {
+    // Yield to VR when a headset session is active
+    if (gl.xr.isPresenting) return;
+
     const forward = new THREE.Vector3(-Math.sin(yaw.current), 0, -Math.cos(yaw.current));
     const right   = new THREE.Vector3( Math.cos(yaw.current), 0, -Math.sin(yaw.current));
     const move    = new THREE.Vector3();
 
-    // Keyboard + D-pad
     const k = { ...keys.current, ...(externalKeysRef?.current || {}) };
     if (k['KeyW'] || k['ArrowUp'])    move.addScaledVector(forward,  1);
     if (k['KeyS'] || k['ArrowDown'])  move.addScaledVector(forward, -1);
@@ -109,10 +107,9 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
       camera.position.add(move);
     }
 
-    // Scroll-wheel: scrollRef.current accumulates deltaY from outside the Canvas
     if (scrollRef?.current) {
       camera.position.addScaledVector(forward, -scrollRef.current * 0.012);
-      scrollRef.current = 0;   // consume
+      scrollRef.current = 0;
     }
 
     camera.position.y = eyeHeightRef.current;
@@ -126,8 +123,43 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
 }
 
 /* ─────────────────────────────────────────────────────────
+   VR Locomotion — left controller thumbstick moves the player
+   XROrigin acts as the player's world-space anchor; moving
+   it shifts the VR camera rig without fighting headset tracking.
+───────────────────────────────────────────────────────── */
+function VRLocomotion({ speed = 2.5 }) {
+  const originRef = useRef(null);
+  const leftCtrl  = useXRInputSourceState('controller', 'left');
+
+  useFrame(({ gl, camera }, delta) => {
+    if (!gl.xr.isPresenting || !originRef.current) return;
+
+    const axes = leftCtrl?.gamepad?.axes;
+    if (!axes) return;
+
+    const stickX = axes[2] ?? 0;
+    const stickY = axes[3] ?? 0;
+    if (Math.abs(stickX) < 0.12 && Math.abs(stickY) < 0.12) return;
+
+    // Flat forward direction from the VR camera look direction
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
+
+    originRef.current.position.addScaledVector(forward, -stickY * speed * delta);
+    originRef.current.position.addScaledVector(right,    stickX * speed * delta);
+  });
+
+  // Start player positioned at the apartment entrance
+  return <XROrigin ref={originRef} position={[0, 0, 4]} />;
+}
+
+/* ─────────────────────────────────────────────────────────
    D-pad — Google Maps style on-screen movement buttons
-   Works on mouse AND touch. Injects into externalKeysRef.
 ───────────────────────────────────────────────────────── */
 function DirectionPad({ externalKeysRef }) {
   const press = (code, down) => {
@@ -177,19 +209,15 @@ function DirectionPad({ externalKeysRef }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.8 }}
     >
-      {/* D-pad grid: 3 cols × 2 rows */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 48px)', gap: 6 }}>
-        {/* Row 1 */}
         <div />
         {btn('ArrowUp',    '↑', 'Forward')}
         <div />
-        {/* Row 2 */}
         {btn('ArrowLeft',  '←', 'Left')}
         {btn('ArrowDown',  '↓', 'Back')}
         {btn('ArrowRight', '→', 'Right')}
       </div>
 
-      {/* Hint label */}
       <p style={{ color: 'rgba(255,255,255,0.25)', fontSize: 9, textAlign: 'center',
                   marginTop: 6, letterSpacing: '0.15em', textTransform: 'uppercase' }}>
         Move · Drag to look
@@ -233,12 +261,12 @@ function FlatFallback() {
 }
 
 /* ─────────────────────────────────────────────────────────
-   Camera height slider (right side)
+   Camera height slider (right side, desktop only)
 ───────────────────────────────────────────────────────── */
 function HeightSlider({ value, onChange }) {
   return (
     <motion.div
-      className="absolute right-4 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2"
+      className="absolute right-4 top-1/2 -translate-y-1/2 z-20 hidden md:flex flex-col items-center gap-2"
       initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.8 }}
     >
       <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase' }}>
@@ -271,22 +299,18 @@ function HeightSlider({ value, onChange }) {
 }
 
 /* ─────────────────────────────────────────────────────────
-   Main page
-───────────────────────────────────────────────────────── */
-/* ─────────────────────────────────────────────────────────
    Zoomable 2D image — scroll wheel + pinch to zoom, drag to pan
 ───────────────────────────────────────────────────────── */
 function ZoomableImage({ src, alt }) {
   const [zoom, setZoom]   = useState(1);
   const [pan,  setPan]    = useState({ x: 0, y: 0 });
-  const [drag, setDrag]   = useState(false);   // track for cursor style
+  const [drag, setDrag]   = useState(false);
   const containerRef      = useRef(null);
   const lastPinchDist     = useRef(null);
   const isDragging        = useRef(false);
   const dragStart         = useRef({ x: 0, y: 0, px: 0, py: 0 });
   const clampZ = v => Math.min(5, Math.max(0.5, v));
 
-  // Scroll wheel on the image container
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -295,7 +319,6 @@ function ZoomableImage({ src, alt }) {
     return () => el.removeEventListener('wheel', handler);
   }, []);
 
-  // Mouse drag
   const onMouseDown = (e) => {
     isDragging.current = true; setDrag(true);
     dragStart.current  = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
@@ -307,7 +330,6 @@ function ZoomableImage({ src, alt }) {
   };
   const onMouseUp = () => { isDragging.current = false; setDrag(false); };
 
-  // Touch drag + pinch
   const onTouchStart = (e) => {
     if (e.touches.length === 2)
       lastPinchDist.current = Math.hypot(
@@ -338,10 +360,7 @@ function ZoomableImage({ src, alt }) {
     alignItems: 'center', justifyContent: 'center', userSelect: 'none' };
 
   return (
-    /* Outer wrapper: relative so zoom buttons can be absolutely positioned OUTSIDE overflow:hidden */
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-
-      {/* ── Zoom + Reset buttons (outside overflow:hidden, always visible) ── */}
       <div style={{ position: 'absolute', bottom: 16, right: 16, zIndex: 30,
                     display: 'flex', gap: 6, alignItems: 'center' }}>
         <button style={btnStyle} onClick={() => setZoom(z => clampZ(z * 1.25))}>+</button>
@@ -355,14 +374,12 @@ function ZoomableImage({ src, alt }) {
         )}
       </div>
 
-      {/* Hint */}
       <div style={{ position: 'absolute', bottom: 20, left: 16, zIndex: 30,
                     color: 'rgba(255,255,255,0.22)', fontSize: 9,
                     letterSpacing: '0.15em', textTransform: 'uppercase' }}>
         Scroll · Pinch · Drag
       </div>
 
-      {/* Image container with overflow hidden (image can grow beyond bounds when zoomed) */}
       <div ref={containerRef}
         style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
                  justifyContent: 'center', overflow: 'hidden',
@@ -385,13 +402,19 @@ function ZoomableImage({ src, alt }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────
+   Main page
+───────────────────────────────────────────────────────── */
 export default function WalkthroughView({ selection, onBack, onEnquire }) {
-  const [mode, setMode]     = useState('3d');
+  const [mode, setMode]       = useState('3d');
   const [loading, setLoading] = useState(true);
   const [eyeHeight, setEyeHeight] = useState(1.7);
+  const [vrSupported, setVrSupported]   = useState(false);
+  const [isVRPresenting, setIsVRPresenting] = useState(false);
+
   const eyeHeightRef    = useRef(1.7);
   const externalKeysRef = useRef({});
-  const scrollRef       = useRef(0);   // accumulates wheel deltaY for 3D zoom
+  const scrollRef       = useRef(0);
   const canvasWrapRef   = useRef(null);
 
   const handleHeightChange = (v) => {
@@ -399,7 +422,21 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     setEyeHeight(v);
   };
 
-  // Native wheel listener on the 3D canvas wrapper — bypasses React's passive default
+  // Check if the browser + device supports immersive VR
+  useEffect(() => {
+    navigator.xr?.isSessionSupported('immersive-vr')
+      .then(setVrSupported)
+      .catch(() => {});
+  }, []);
+
+  // Track VR session state from xrStore
+  useEffect(() => {
+    return xrStore.subscribe(state => {
+      setIsVRPresenting(!!state.session);
+    });
+  }, []);
+
+  // Native wheel listener on the 3D canvas wrapper
   useEffect(() => {
     const el = canvasWrapRef.current;
     if (!el) return;
@@ -411,6 +448,18 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
   }, [mode]);
+
+  const handleEnterVR = async () => {
+    try {
+      await xrStore.enterVR();
+    } catch (e) {
+      alert('VR is not supported on this device or browser.\nUse a VR headset with a WebXR-compatible browser (e.g. Meta Browser on Quest).');
+    }
+  };
+
+  const handleExitVR = () => {
+    xrStore.getState().session?.end();
+  };
 
   const is3BHK    = selection.flat?.type?.includes('3 BHK');
   const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb' : '/assets/models/flat.glb';
@@ -432,7 +481,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
             style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(20px)' }}>
             {['2D', '3D'].map(m => (
               <motion.button key={m}
-                className={`px-7 py-2 rounded-full text-xs tracking-[0.2em] uppercase font-medium transition-all duration-300
+                className={`px-4 sm:px-7 py-1.5 sm:py-2 rounded-full text-xs tracking-[0.2em] uppercase font-medium transition-all duration-300
                   ${mode === m.toLowerCase() ? 'bg-[#c49a3c] text-black shadow-lg' : 'text-white/50 hover:text-white'}`}
                 onClick={() => { setMode(m.toLowerCase()); setLoading(true); }}
                 whileTap={{ scale: 0.95 }}>
@@ -464,23 +513,88 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
 
                 <Canvas camera={{ fov: 75 }} shadows
                   onCreated={() => setTimeout(() => setLoading(false), 600)}>
-                  <ambientLight intensity={0.5} />
-                  <pointLight position={[0, 2.5, 0]} intensity={1.2} color="#ffe8c0" />
-                  <pointLight position={[-4, 2, -3]} intensity={0.4} color="#c49a3c" />
-                  <pointLight position={[4, 2, 3]}  intensity={0.3} color="#aabbff" />
-                  <Suspense fallback={<FlatFallback />}>
-                    <FlatModel modelPath={modelPath} />
-                    <Environment preset="apartment" />
-                  </Suspense>
-                  <FirstPersonController speed={5} eyeHeightRef={eyeHeightRef}
-                    externalKeysRef={externalKeysRef} scrollRef={scrollRef} />
+                  <XR store={xrStore}>
+                    <ambientLight intensity={0.5} />
+                    <pointLight position={[0, 2.5, 0]} intensity={1.2} color="#ffe8c0" />
+                    <pointLight position={[-4, 2, -3]} intensity={0.4} color="#c49a3c" />
+                    <pointLight position={[4, 2, 3]}  intensity={0.3} color="#aabbff" />
+                    <Suspense fallback={<FlatFallback />}>
+                      <FlatModel modelPath={modelPath} />
+                      <Environment preset="apartment" />
+                    </Suspense>
+                    <FirstPersonController speed={5} eyeHeightRef={eyeHeightRef}
+                      externalKeysRef={externalKeysRef} scrollRef={scrollRef} />
+                    <VRLocomotion speed={2.5} />
+                  </XR>
                 </Canvas>
 
-                {/* D-pad (replaces old room tabs + WASD hint) */}
-                <DirectionPad externalKeysRef={externalKeysRef} />
+                {/* D-pad — hidden when VR is presenting (controller used instead) */}
+                {!isVRPresenting && (
+                  <DirectionPad externalKeysRef={externalKeysRef} />
+                )}
 
-                {/* Height slider */}
+                {/* Mobile height presets — hidden in VR */}
+                {!isVRPresenting && (
+                  <motion.div
+                    className="absolute md:hidden z-20 flex gap-2"
+                    style={{ bottom: 110, left: '50%', transform: 'translateX(-50%)' }}
+                    initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1 }}
+                  >
+                    {[{ label: 'Eye', v: 1.7 }, { label: 'Sit', v: 1.1 }, { label: 'Top', v: 3.0 }].map(p => (
+                      <button key={p.label} onClick={() => handleHeightChange(p.v)}
+                        style={{
+                          background: Math.abs(eyeHeight - p.v) < 0.15 ? 'rgba(196,154,60,0.25)' : 'rgba(0,0,0,0.55)',
+                          border: `1px solid ${Math.abs(eyeHeight - p.v) < 0.15 ? 'rgba(196,154,60,0.6)' : 'rgba(255,255,255,0.15)'}`,
+                          color: Math.abs(eyeHeight - p.v) < 0.15 ? '#c49a3c' : 'rgba(255,255,255,0.4)',
+                          fontSize: 10, letterSpacing: '0.1em', padding: '5px 12px', borderRadius: 6,
+                          cursor: 'pointer', textTransform: 'uppercase', backdropFilter: 'blur(10px)',
+                        }}
+                      >{p.label}</button>
+                    ))}
+                  </motion.div>
+                )}
+
+                {/* Desktop height slider */}
                 <HeightSlider value={eyeHeight} onChange={handleHeightChange} />
+
+                {/* ── VR Entry Button ── */}
+                {vrSupported && (
+                  <motion.button
+                    onClick={isVRPresenting ? handleExitVR : handleEnterVR}
+                    className="absolute z-30 flex items-center gap-2 text-xs tracking-[0.18em] uppercase font-semibold rounded-full transition-all duration-300"
+                    style={{
+                      bottom: 28, left: 16,
+                      padding: '10px 18px',
+                      background: isVRPresenting
+                        ? 'rgba(196,154,60,0.15)'
+                        : 'rgba(0,0,0,0.6)',
+                      border: `1px solid ${isVRPresenting ? 'rgba(196,154,60,0.7)' : 'rgba(196,154,60,0.5)'}`,
+                      color: '#c49a3c',
+                      backdropFilter: 'blur(12px)',
+                    }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.2 }}
+                  >
+                    <span style={{ fontSize: 16 }}>🥽</span>
+                    <span>{isVRPresenting ? 'Exit VR' : 'Enter VR'}</span>
+                  </motion.button>
+                )}
+
+                {/* VR Active indicator */}
+                {isVRPresenting && (
+                  <motion.div
+                    className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-full"
+                    style={{ background: 'rgba(196,154,60,0.15)', border: '1px solid rgba(196,154,60,0.4)',
+                             backdropFilter: 'blur(12px)' }}
+                    initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
+                  >
+                    <span className="w-2 h-2 rounded-full bg-[#c49a3c] animate-pulse" />
+                    <span className="text-[#c49a3c] text-xs tracking-widest uppercase">VR Mode Active</span>
+                  </motion.div>
+                )}
               </motion.div>
             )}
 
@@ -513,7 +627,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
           {/* Enquire button */}
           {onEnquire && (
             <motion.button
-              className="absolute top-4 right-4 z-10 px-5 py-2.5 bg-[#c49a3c] text-black text-xs tracking-[0.2em] uppercase font-semibold rounded-full hover:bg-[#d4af6e] transition-colors duration-300"
+              className="absolute top-4 right-4 z-10 px-3 sm:px-5 py-2 sm:py-2.5 bg-[#c49a3c] text-black text-xs tracking-[0.15em] uppercase font-semibold rounded-full hover:bg-[#d4af6e] transition-colors duration-300"
               whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1 }}
               onClick={onEnquire}
