@@ -124,36 +124,37 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
 
 /* ─────────────────────────────────────────────────────────
    VR Locomotion — direct WebXR session input (works on all devices)
-   • RIGHT controller thumbstick → move forward/back/strafe
-   • LEFT  controller thumbstick Y → adjust height (up/down)
-   XROrigin is the player's world-space anchor — moving it
-   shifts the VR rig without fighting headset tracking.
+   • RIGHT stick       → walk forward / back / strafe
+   • LEFT  stick X     → smooth rotate left / right
+   • LEFT  stick Y     → raise / lower viewpoint
+   • RIGHT button B (buttons[5]) → exit VR + go back
+   • LEFT  button X (buttons[4]) → exit VR + go to Enquire
 
    Cross-device axis mapping:
      Most headsets (Quest 2/3/Pro, Reverb G2, Index, Pico):
        axes[2] = thumbstick X,  axes[3] = thumbstick Y
-     Simple 3DoF / touchpad-only controllers:
+     Simple 3DoF / touchpad-only:
        axes[0] = input X,       axes[1] = input Y
-   We try the standard indices first and fall back automatically.
 ───────────────────────────────────────────────────────── */
-function VRLocomotion({ speed = 2.5 }) {
-  const originRef     = useRef(null);
-  const heightRef     = useRef(0);   // accumulated Y offset in VR
+function VRLocomotion({ speed = 2.5, onBack, onEnquire }) {
+  const originRef   = useRef(null);
+  const heightRef   = useRef(0);
+  const btnPrevRef  = useRef({});   // rising-edge debounce per button
+  // Keep callbacks in refs so the render-loop closure always sees the latest value
+  const onBackRef    = useRef(onBack);
+  const onEnquireRef = useRef(onEnquire);
+  useEffect(() => { onBackRef.current    = onBack; },    [onBack]);
+  useEffect(() => { onEnquireRef.current = onEnquire; }, [onEnquire]);
 
   useFrame(({ gl }, delta) => {
-    // Read session directly from the xrStore — reliable across @react-three/xr versions
     const session = xrStore.getState().session;
     if (!session || !originRef.current) return;
 
-    // Get the head look direction from the XR camera for steering
+    // Head look direction (from the XR camera) for steering
     const xrCam  = gl.xr.getCamera ? gl.xr.getCamera() : null;
     const forward = new THREE.Vector3();
-    if (xrCam) {
-      xrCam.getWorldDirection(forward);
-    } else {
-      // Fallback: use the origin's own Z axis
-      originRef.current.getWorldDirection(forward);
-    }
+    if (xrCam) xrCam.getWorldDirection(forward);
+    else        originRef.current.getWorldDirection(forward);
     forward.y = 0;
     if (forward.lengthSq() > 0.0001) forward.normalize();
 
@@ -162,30 +163,63 @@ function VRLocomotion({ speed = 2.5 }) {
 
     for (const source of session.inputSources) {
       const gp = source.gamepad;
-      if (!gp || !gp.axes || gp.axes.length < 2) continue;
+      if (!gp) continue;
+      const hand = source.handedness;   // 'right' | 'left'
 
-      // Pick thumbstick axes — prefer [2],[3] (standard), fallback to [0],[1]
-      const n  = gp.axes.length;
-      const sx = n >= 4 ? gp.axes[2] : gp.axes[0];  // lateral
-      const sy = n >= 4 ? gp.axes[3] : gp.axes[1];  // fore-aft / up-down
+      // ── Thumbstick axes ──────────────────────────────────
+      if (gp.axes && gp.axes.length >= 2) {
+        const n  = gp.axes.length;
+        // axes[2]/[3] = thumbstick (6DoF standard); axes[0]/[1] = touchpad fallback
+        const sx = n >= 4 ? gp.axes[2] : gp.axes[0];
+        const sy = n >= 4 ? gp.axes[3] : gp.axes[1];
 
-      if (source.handedness === 'right') {
-        // ── RIGHT stick → walk forward / back / strafe ──
-        const mx = Math.abs(sx) > 0.1 ? sx : 0;
-        const mz = Math.abs(sy) > 0.1 ? sy : 0;
-        if (mx !== 0 || mz !== 0) {
-          originRef.current.position.addScaledVector(forward, -mz * speed * delta);
-          originRef.current.position.addScaledVector(right,    mx * speed * delta);
+        if (hand === 'right') {
+          // RIGHT stick → movement
+          const mx = Math.abs(sx) > 0.1 ? sx : 0;
+          const mz = Math.abs(sy) > 0.1 ? sy : 0;
+          if (mx !== 0 || mz !== 0) {
+            originRef.current.position.addScaledVector(forward, -mz * speed * delta);
+            originRef.current.position.addScaledVector(right,    mx * speed * delta);
+          }
+
+        } else if (hand === 'left') {
+          // LEFT stick X → smooth yaw rotation
+          const rx = Math.abs(sx) > 0.12 ? sx : 0;
+          if (rx !== 0) {
+            originRef.current.rotation.y -= rx * 1.5 * delta;
+          }
+
+          // LEFT stick Y → height up / down
+          const hy = Math.abs(sy) > 0.15 ? sy : 0;
+          if (hy !== 0) {
+            heightRef.current = Math.max(-1.5, Math.min(2.5,
+              heightRef.current - hy * 1.5 * delta
+            ));
+            originRef.current.position.y = heightRef.current;
+          }
         }
+      }
 
-      } else if (source.handedness === 'left') {
-        // ── LEFT stick Y → raise / lower viewpoint ──
-        const hy = Math.abs(sy) > 0.15 ? sy : 0;
-        if (hy !== 0) {
-          heightRef.current = Math.max(-1.5, Math.min(2.5,
-            heightRef.current - hy * 1.5 * delta
-          ));
-          originRef.current.position.y = heightRef.current;
+      // ── Buttons (rising-edge — only fires on the press frame) ──
+      if (gp.buttons) {
+        for (let i = 0; i < gp.buttons.length; i++) {
+          const key  = `${hand}_${i}`;
+          const now  = gp.buttons[i].pressed;
+          const prev = btnPrevRef.current[key] || false;
+
+          if (now && !prev) {
+            // B button: right controller index 5 → exit VR + go back
+            if (hand === 'right' && i === 5) {
+              xrStore.getState().session?.end();
+              onBackRef.current?.();
+            }
+            // X button: left controller index 4 → exit VR + go to Enquire
+            if (hand === 'left' && i === 4) {
+              xrStore.getState().session?.end();
+              onEnquireRef.current?.();
+            }
+          }
+          btnPrevRef.current[key] = now;
         }
       }
     }
@@ -566,7 +600,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     </Suspense>
                     <FirstPersonController speed={5} eyeHeightRef={eyeHeightRef}
                       externalKeysRef={externalKeysRef} scrollRef={scrollRef} />
-                    <VRLocomotion speed={2.5} />
+                    <VRLocomotion speed={2.5} onBack={onBack} onEnquire={onEnquire} />
                   </XR>
                 </Canvas>
 
@@ -625,16 +659,25 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                   </motion.button>
                 )}
 
-                {/* VR Active indicator */}
+                {/* VR Active indicator + controller hint */}
                 {isVRPresenting && (
                   <motion.div
-                    className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-4 py-2 rounded-full"
-                    style={{ background: 'rgba(196,154,60,0.15)', border: '1px solid rgba(196,154,60,0.4)',
-                             backdropFilter: 'blur(12px)' }}
+                    className="absolute top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-1"
                     initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }}
                   >
-                    <span className="w-2 h-2 rounded-full bg-[#c49a3c] animate-pulse" />
-                    <span className="text-[#c49a3c] text-xs tracking-widest uppercase">VR Mode Active</span>
+                    <div className="flex items-center gap-2 px-4 py-2 rounded-full"
+                      style={{ background: 'rgba(196,154,60,0.15)', border: '1px solid rgba(196,154,60,0.4)',
+                               backdropFilter: 'blur(12px)' }}>
+                      <span className="w-2 h-2 rounded-full bg-[#c49a3c] animate-pulse" />
+                      <span className="text-[#c49a3c] text-xs tracking-widest uppercase">VR Mode Active</span>
+                    </div>
+                    <div className="flex gap-3 px-3 py-1.5 rounded-full"
+                      style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
+                               border: '1px solid rgba(255,255,255,0.08)' }}>
+                      <span className="text-white/40 text-[10px] tracking-wider">B → Back</span>
+                      <span className="text-white/20 text-[10px]">·</span>
+                      <span className="text-white/40 text-[10px] tracking-wider">X → Enquire</span>
+                    </div>
                   </motion.div>
                 )}
               </motion.div>
