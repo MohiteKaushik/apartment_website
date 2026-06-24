@@ -2,7 +2,7 @@ import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { useGLTF, Environment } from '@react-three/drei';
-import { XR, XROrigin, createXRStore, useXRInputSourceState } from '@react-three/xr';
+import { XR, XROrigin, createXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
 import PageBackground from '../components/PageBackground';
@@ -123,38 +123,74 @@ function FirstPersonController({ speed = 5, eyeHeightRef, externalKeysRef, scrol
 }
 
 /* ─────────────────────────────────────────────────────────
-   VR Locomotion — left controller thumbstick moves the player
-   XROrigin acts as the player's world-space anchor; moving
-   it shifts the VR camera rig without fighting headset tracking.
+   VR Locomotion — direct WebXR session input (works on all devices)
+   • RIGHT controller thumbstick → move forward/back/strafe
+   • LEFT  controller thumbstick Y → adjust height (up/down)
+   XROrigin is the player's world-space anchor — moving it
+   shifts the VR rig without fighting headset tracking.
+
+   Cross-device axis mapping:
+     Most headsets (Quest 2/3/Pro, Reverb G2, Index, Pico):
+       axes[2] = thumbstick X,  axes[3] = thumbstick Y
+     Simple 3DoF / touchpad-only controllers:
+       axes[0] = input X,       axes[1] = input Y
+   We try the standard indices first and fall back automatically.
 ───────────────────────────────────────────────────────── */
 function VRLocomotion({ speed = 2.5 }) {
-  const originRef = useRef(null);
-  const leftCtrl  = useXRInputSourceState('controller', 'left');
+  const originRef     = useRef(null);
+  const heightRef     = useRef(0);   // accumulated Y offset in VR
 
-  useFrame(({ gl, camera }, delta) => {
-    if (!gl.xr.isPresenting || !originRef.current) return;
+  useFrame(({ gl }, delta) => {
+    // Read session directly from the xrStore — reliable across @react-three/xr versions
+    const session = xrStore.getState().session;
+    if (!session || !originRef.current) return;
 
-    const axes = leftCtrl?.gamepad?.axes;
-    if (!axes) return;
-
-    const stickX = axes[2] ?? 0;
-    const stickY = axes[3] ?? 0;
-    if (Math.abs(stickX) < 0.12 && Math.abs(stickY) < 0.12) return;
-
-    // Flat forward direction from the VR camera look direction
+    // Get the head look direction from the XR camera for steering
+    const xrCam  = gl.xr.getCamera ? gl.xr.getCamera() : null;
     const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
+    if (xrCam) {
+      xrCam.getWorldDirection(forward);
+    } else {
+      // Fallback: use the origin's own Z axis
+      originRef.current.getWorldDirection(forward);
+    }
     forward.y = 0;
-    forward.normalize();
+    if (forward.lengthSq() > 0.0001) forward.normalize();
 
     const right = new THREE.Vector3();
     right.crossVectors(forward, new THREE.Vector3(0, 1, 0));
 
-    originRef.current.position.addScaledVector(forward, -stickY * speed * delta);
-    originRef.current.position.addScaledVector(right,    stickX * speed * delta);
+    for (const source of session.inputSources) {
+      const gp = source.gamepad;
+      if (!gp || !gp.axes || gp.axes.length < 2) continue;
+
+      // Pick thumbstick axes — prefer [2],[3] (standard), fallback to [0],[1]
+      const n  = gp.axes.length;
+      const sx = n >= 4 ? gp.axes[2] : gp.axes[0];  // lateral
+      const sy = n >= 4 ? gp.axes[3] : gp.axes[1];  // fore-aft / up-down
+
+      if (source.handedness === 'right') {
+        // ── RIGHT stick → walk forward / back / strafe ──
+        const mx = Math.abs(sx) > 0.1 ? sx : 0;
+        const mz = Math.abs(sy) > 0.1 ? sy : 0;
+        if (mx !== 0 || mz !== 0) {
+          originRef.current.position.addScaledVector(forward, -mz * speed * delta);
+          originRef.current.position.addScaledVector(right,    mx * speed * delta);
+        }
+
+      } else if (source.handedness === 'left') {
+        // ── LEFT stick Y → raise / lower viewpoint ──
+        const hy = Math.abs(sy) > 0.15 ? sy : 0;
+        if (hy !== 0) {
+          heightRef.current = Math.max(-1.5, Math.min(2.5,
+            heightRef.current - hy * 1.5 * delta
+          ));
+          originRef.current.position.y = heightRef.current;
+        }
+      }
+    }
   });
 
-  // Start player positioned at the apartment entrance
   return <XROrigin ref={originRef} position={[0, 0, 4]} />;
 }
 
@@ -461,9 +497,15 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     xrStore.getState().session?.end();
   };
 
-  const is3BHK    = selection.flat?.type?.includes('3 BHK');
-  const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb' : '/assets/models/flat.glb';
-  const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png' : '/assets/images/floorplan.png';
+  const flatType = selection.flat?.type || '';
+  const is3BHK   = flatType.includes('3 BHK');
+  const is2BHK   = flatType.includes('2 BHK');
+  const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb'
+                  : is2BHK ? '/assets/models/flat_2bhk.glb'
+                  : '/assets/models/flat.glb';
+  const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png'
+                     : is2BHK ? '/assets/images/2bhk_flat_plan.png'
+                     : '/assets/images/floorplan.png';
 
   return (
     <motion.div

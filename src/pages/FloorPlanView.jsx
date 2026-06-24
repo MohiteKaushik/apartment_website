@@ -19,10 +19,11 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
   const [imgError, setImgError]   = useState(false);
 
   // ── Pick floor-plan image based on flat type ──
-  const is3BHK    = flat?.type?.includes('3 BHK');
-  const planImage = is3BHK
-    ? '/assets/images/3bhk_flat_plan.png'
-    : '/assets/images/floorplan.png';
+  const is3BHK   = flat?.type?.includes('3 BHK');
+  const is2BHK   = flat?.type?.includes('2 BHK');
+  const planImage = is3BHK ? '/assets/images/3bhk_flat_plan.png'
+                  : is2BHK ? '/assets/images/2bhk_flat_plan.png'
+                  : '/assets/images/floorplan.png';
 
   return (
     <motion.div
