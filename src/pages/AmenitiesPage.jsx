@@ -223,12 +223,10 @@ function AmenityVRMove({ speed = 3 }) {
 ───────────────────────────────────────────────────────── */
 function AmenityViewer({ amenity, onClose }) {
   const [loading, setLoading]         = useState(true);
-  const [vrSupported, setVrSupported] = useState(false);
   const [isVRP, setIsVRP]             = useState(false);
   const orbitRef = useRef();
 
   useEffect(() => {
-    navigator.xr?.isSessionSupported('immersive-vr').then(setVrSupported).catch(() => {});
     return amenityXRStore.subscribe(s => setIsVRP(!!s.session));
   }, []);
 

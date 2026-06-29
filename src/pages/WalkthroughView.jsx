@@ -479,7 +479,6 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const [mode, setMode]       = useState('3d');
   const [loading, setLoading] = useState(true);
   const [eyeHeight, setEyeHeight] = useState(1.7);
-  const [vrSupported, setVrSupported]   = useState(false);
   const [isVRPresenting, setIsVRPresenting] = useState(false);
 
   const eyeHeightRef    = useRef(1.7);
@@ -491,13 +490,6 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     eyeHeightRef.current = v;
     setEyeHeight(v);
   };
-
-  // Check if the browser + device supports immersive VR
-  useEffect(() => {
-    navigator.xr?.isSessionSupported('immersive-vr')
-      .then(setVrSupported)
-      .catch(() => {});
-  }, []);
 
   // Track VR session state from xrStore
   useEffect(() => {
