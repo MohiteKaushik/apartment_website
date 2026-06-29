@@ -336,7 +336,7 @@ function TowerScene({ controlsRef, targetY, hoveredId }) {
 }
 
 /* ── Main page ── */
-export default function TowerSelection({ onSelectTower }) {
+export default function TowerSelection({ onSelectTower, onViewAmenities }) {
   const [hoveredId, setHoveredId] = useState(null);
   const [loading3D, setLoading3D] = useState(true);
   const [targetY, setTargetY]     = useState(7);  // orbit pivot at ~mid-tower
@@ -475,6 +475,19 @@ export default function TowerSelection({ onSelectTower }) {
             {/* Mobile compact title */}
             <p className="flex sm:hidden text-[#c49a3c] text-xs tracking-[0.3em] uppercase">Choose Your Tower</p>
 
+            {/* Amenities shortcut — mobile only (desktop version below) */}
+            {onViewAmenities && (
+              <motion.button
+                onClick={onViewAmenities}
+                className="flex sm:hidden items-center justify-center gap-2 w-full py-2 text-[10px] tracking-[0.22em] uppercase text-white/30 rounded-lg border border-white/8 hover:text-white/55 hover:border-[#c49a3c]/30 transition-all duration-300"
+                whileTap={{ scale: 0.96 }}
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
+              >
+                <span className="text-[#c49a3c]/50">✦</span>
+                <span>Explore Amenities</span>
+              </motion.button>
+            )}
+
             {TOWERS.map((tower, i) => {
               const isHovered = hoveredId === tower.id;
               return (
@@ -535,6 +548,18 @@ export default function TowerSelection({ onSelectTower }) {
                 </motion.div>
               );
             })}
+            {/* Amenities link — desktop */}
+            {onViewAmenities && (
+              <motion.button
+                onClick={onViewAmenities}
+                className="hidden sm:flex items-center justify-center gap-2 w-full mt-1 py-2.5 text-[10px] tracking-[0.22em] uppercase text-white/28 rounded-lg border border-white/7 hover:text-[#c49a3c]/70 hover:border-[#c49a3c]/25 transition-all duration-300"
+                whileHover={{ scale: 1.015 }} whileTap={{ scale: 0.97 }}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.75 }}
+              >
+                <span className="text-[#c49a3c]/45 text-[9px]">✦</span>
+                <span>Explore Amenities</span>
+              </motion.button>
+            )}
           </div>
         </div>
       </div>

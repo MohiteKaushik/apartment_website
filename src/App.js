@@ -7,6 +7,7 @@ import FlatSelection from './pages/FlatSelection';
 import FloorPlanView from './pages/FloorPlanView';
 import WalkthroughView from './pages/WalkthroughView';
 import ContactPage from './pages/ContactPage';
+import AmenitiesPage from './pages/AmenitiesPage';
 
 const PAGES = {
   INTRO:      'INTRO',
@@ -16,6 +17,7 @@ const PAGES = {
   FLOOR_PLAN: 'FLOOR_PLAN',
   WALKTHROUGH:'WALKTHROUGH',
   CONTACT:    'CONTACT',
+  AMENITIES:  'AMENITIES',
 };
 
 export default function App() {
@@ -35,7 +37,11 @@ export default function App() {
         )}
         {page === PAGES.TOWER && (
           <TowerSelection key="tower" selection={selection}
-            onSelectTower={tower => navigate(PAGES.FLOOR, { tower })} />
+            onSelectTower={tower => navigate(PAGES.FLOOR, { tower })}
+            onViewAmenities={() => navigate(PAGES.AMENITIES)} />
+        )}
+        {page === PAGES.AMENITIES && (
+          <AmenitiesPage key="amenities" onBack={() => navigate(PAGES.TOWER)} />
         )}
         {page === PAGES.FLOOR && (
           <FloorSelection key="floor" selection={selection}
