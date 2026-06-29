@@ -23,10 +23,16 @@ const PAGES = {
 export default function App() {
   const [page, setPage] = useState(PAGES.INTRO);
   const [selection, setSelection] = useState({ tower: null, floor: null, flat: null });
+  const [contactReturnPage, setContactReturnPage] = useState(PAGES.WALKTHROUGH);
 
   const navigate = (nextPage, updates = {}) => {
     setSelection(prev => ({ ...prev, ...updates }));
     setPage(nextPage);
+  };
+
+  const goToContact = (returnTo) => {
+    setContactReturnPage(returnTo);
+    navigate(PAGES.CONTACT);
   };
 
   return (
@@ -41,7 +47,9 @@ export default function App() {
             onViewAmenities={() => navigate(PAGES.AMENITIES)} />
         )}
         {page === PAGES.AMENITIES && (
-          <AmenitiesPage key="amenities" onBack={() => navigate(PAGES.TOWER)} />
+          <AmenitiesPage key="amenities"
+            onBack={() => navigate(PAGES.TOWER)}
+            onEnquire={() => goToContact(PAGES.AMENITIES)} />
         )}
         {page === PAGES.FLOOR && (
           <FloorSelection key="floor" selection={selection}
@@ -60,12 +68,12 @@ export default function App() {
         )}
         {page === PAGES.WALKTHROUGH && (
           <WalkthroughView key="walkthrough" selection={selection}
-            onEnquire={() => navigate(PAGES.CONTACT)}
+            onEnquire={() => goToContact(PAGES.WALKTHROUGH)}
             onBack={() => navigate(PAGES.FLOOR_PLAN)} />
         )}
         {page === PAGES.CONTACT && (
           <ContactPage key="contact" selection={selection}
-            onBack={() => navigate(PAGES.WALKTHROUGH)} />
+            onBack={() => navigate(contactReturnPage)} />
         )}
       </AnimatePresence>
     </div>

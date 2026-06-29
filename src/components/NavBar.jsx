@@ -17,8 +17,9 @@ export default function NavBar({ step, onBack }) {
         {onBack && (
           <motion.button
             onClick={onBack}
-            className="text-white/35 hover:text-[#c49a3c] transition-colors duration-200 text-base leading-none"
-            whileHover={{ x: -3 }}
+            className="text-white/40 hover:text-[#c49a3c] transition-colors duration-200 leading-none"
+            style={{ fontSize: 22 }}
+            whileHover={{ x: -4 }}
             whileTap={{ scale: 0.9 }}
             title="Go back"
           >

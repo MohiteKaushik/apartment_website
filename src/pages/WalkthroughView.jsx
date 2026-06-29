@@ -9,7 +9,7 @@ import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 
 /* Module-level XR store — one instance for the whole session */
-const xrStore = createXRStore();
+const xrStore = createXRStore({ emulate: false });
 
 /* ─────────────────────────────────────────────────────────
    First-person camera (non-VR)
@@ -633,8 +633,8 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                 {/* Desktop height slider */}
                 <HeightSlider value={eyeHeight} onChange={handleHeightChange} />
 
-                {/* ── VR Entry Button ── */}
-                {vrSupported && (
+                {/* ── VR Entry Button — always visible; graceful alert if no VR hardware ── */}
+                {(
                   <motion.button
                     onClick={isVRPresenting ? handleExitVR : handleEnterVR}
                     className="absolute z-30 flex items-center gap-2 text-xs tracking-[0.18em] uppercase font-semibold rounded-full transition-all duration-300"
