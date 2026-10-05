@@ -8,6 +8,7 @@ import FloorPlanView from './pages/FloorPlanView';
 import WalkthroughView from './pages/WalkthroughView';
 import ContactPage from './pages/ContactPage';
 import AmenitiesPage from './pages/AmenitiesPage';
+import RoomCustomizerPage from './pages/RoomCustomizerPage';
 
 const PAGES = {
   INTRO:      'INTRO',
@@ -18,6 +19,7 @@ const PAGES = {
   WALKTHROUGH:'WALKTHROUGH',
   CONTACT:    'CONTACT',
   AMENITIES:  'AMENITIES',
+  CUSTOMIZER: 'CUSTOMIZER',
 };
 
 export default function App() {
@@ -44,12 +46,17 @@ export default function App() {
         {page === PAGES.TOWER && (
           <TowerSelection key="tower" selection={selection}
             onSelectTower={tower => navigate(PAGES.FLOOR, { tower })}
-            onViewAmenities={() => navigate(PAGES.AMENITIES)} />
+            onViewAmenities={() => navigate(PAGES.AMENITIES)}
+            onCustomize={() => navigate(PAGES.CUSTOMIZER)} />
         )}
         {page === PAGES.AMENITIES && (
           <AmenitiesPage key="amenities"
             onBack={() => navigate(PAGES.TOWER)}
             onEnquire={() => goToContact(PAGES.AMENITIES)} />
+        )}
+        {page === PAGES.CUSTOMIZER && (
+          <RoomCustomizerPage key="customizer"
+            onBack={() => navigate(PAGES.TOWER)} />
         )}
         {page === PAGES.FLOOR && (
           <FloorSelection key="floor" selection={selection}
