@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vayam · Compile an AR target</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<style>
+  :root { --gold:#c49a3c; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:#0a0a0a; color:#fff;
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+         padding:34px 20px 60px; }
+  .wrap { max-width:660px; margin:0 auto; }
+  h1 { font-size:22px; font-weight:600; margin:0 0 6px; }
+  .lede { color:rgba(255,255,255,.5); font-size:14px; line-height:1.6; margin:0 0 28px; }
+  code { background:rgba(255,255,255,.08); padding:2px 6px; border-radius:4px;
+         color:var(--gold); font-size:13px; }
+
+  #drop { border:1.5px dashed rgba(255,255,255,.2); border-radius:16px;
+          padding:44px 20px; text-align:center; cursor:pointer;
+          transition:border-color .2s, background .2s; }
+  #drop.hot { border-color:var(--gold); background:rgba(196,154,60,.07); }
+  #drop b { display:block; font-size:15px; margin-bottom:6px; }
+  #drop span { font-size:12px; color:rgba(255,255,255,.4); }
+
+  .row { display:flex; gap:14px; align-items:center; padding:14px 0;
+         border-bottom:1px solid rgba(255,255,255,.07); }
+  .row img { width:82px; height:auto; border-radius:6px; background:#fff; flex-shrink:0; }
+  .row .meta { flex:1; min-width:0; }
+  .row .meta b { display:block; font-size:13px; font-weight:600;
+                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .meta span { font-size:12px; color:rgba(255,255,255,.42); }
+  .verdict { font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+             padding:5px 11px; border-radius:100px; white-space:nowrap; }
+  .v-strong { background:rgba(80,200,120,.15); color:#6ede9a; }
+  .v-ok     { background:rgba(196,154,60,.16); color:var(--gold); }
+  .v-weak   { background:rgba(255,90,90,.15); color:#ff8a8a; }
+
+  button { font:inherit; border:none; border-radius:100px; cursor:pointer; }
+  .go { margin-top:26px; width:100%; padding:15px; background:var(--gold);
+        color:#000; font-size:15px; font-weight:600; }
+  .go:disabled { opacity:.45; cursor:default; }
+  .bar { height:3px; background:rgba(255,255,255,.1); border-radius:3px;
+         overflow:hidden; margin-top:18px; }
+  .bar i { display:block; height:100%; width:0%; background:var(--gold); transition:width .2s; }
+
+  #status { margin-top:12px; font-size:12px; line-height:1.6;
+            color:rgba(255,255,255,.45); min-height:18px; }
+  #status.warn { color:#ffc06a; }
+  #status.bad  { color:#ff8a8a; }
+  #status.good { color:#6ede9a; }
+
+  #after { margin-top:20px; display:flex; gap:10px; flex-wrap:wrap; }
+  #after[hidden] { display:none; }
+  .alt { padding:12px 20px; background:rgba(255,255,255,.06);
+         border:1px solid rgba(255,255,255,.14); color:#fff; font-size:13px; }
+  .alt:active { background:rgba(255,255,255,.12); }
+
+  .tips { margin-top:34px; padding-top:22px; border-top:1px solid rgba(255,255,255,.07);
+          font-size:13px; line-height:1.75; color:rgba(255,255,255,.5); }
+  .tips h2 { font-size:13px; letter-spacing:.16em; text-transform:uppercase;
+             color:var(--gold); margin:0 0 12px; font-weight:600; }
+  .tips li { margin-bottom:7px; }
+  a { color:var(--gold); }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Compile an AR image target</h1>
+  <p class="lede">
+    Turns your printed artwork into the <code>.mind</code> file that
+    <a href="/ar/card.html">card.html</a> tracks. Everything runs in this browser
+    tab — nothing is uploaded anywhere, and it costs nothing.
+  </p>
+
+  <div id="drop">
+    <b>Drop your card or pamphlet artwork here</b>
+    <span>PNG, JPG or SVG · one file per printed design</span>
+    <input id="file" type="file" accept="image/*" multiple hidden>
+  </div>
+
+  <div id="list"></div>
+
+  <button class="go" id="go" disabled>Compile target file</button>
+  <div class="bar" id="barWrap" hidden><i id="bar"></i></div>
+  <p id="status"></p>
+
+  <div id="after" hidden>
+    <button class="alt" id="saveDisk">Save straight to public/ar/targets/</button>
+    <button class="alt" id="download">Download vayam.mind</button>
+  </div>
+
+  <div class="tips">
+    <h2>What makes a target track well</h2>
+    <ul>
+      <li><b>Busy beats beautiful.</b> The tracker looks for corners. A logo on
+        white has almost none; a printed floor plan with walls, dimension ticks
+        and text has thousands.</li>
+      <li><b>Fill the whole card.</b> Artwork covering 100% of the surface tracks
+        far better than a small mark in the middle.</li>
+      <li><b>Asymmetric.</b> A design that looks the same rotated 180° will make
+        the model flip.</li>
+      <li><b>No repeats.</b> Tiled or striped patterns confuse matching.</li>
+      <li><b>Print matte.</b> Gloss lamination reflects ceiling lights straight
+        into the lens and tracking dies.</li>
+      <li><b>Bigger is steadier.</b> An A5 pamphlet holds far better than an
+        89&nbsp;×&nbsp;51&nbsp;mm visiting card. Test both.</li>
+    </ul>
+    <p>Ready-made designs to print are in <code>public/ar/print/</code>.
+       Compiling one 1024&nbsp;px target takes a few seconds on a laptop with
+       working WebGL, and several minutes without it.</p>
+  </div>
+</div>
+
+<script type="module">
+import { Compiler } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js';
+
+const MAX_EDGE = 1024;   // the compiler builds its own pyramid; bigger is just slower
+const SAVE_URL = '/__save/ar/targets/vayam.mind';
+const META_URL = '/__save/ar/targets/vayam.targets.json';
+
+const $ = (id) => document.getElementById(id);
+const drop = $('drop'), fileInput = $('file'), list = $('list');
+const go = $('go'), bar = $('bar'), barWrap = $('barWrap');
+const status = $('status'), after = $('after');
+
+let entries = [];        // { name, image }
+let compiled = null;     // the .mind bytes once a compile succeeds
+let meta = null;         // sidecar describing each target's printed shape
+
+function say(msg, kind = '') { status.textContent = msg; status.className = kind; }
+
+drop.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => addFiles(e.target.files));
+
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, (e) => {
+  e.preventDefault(); drop.classList.add('hot');
+}));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, (e) => {
+  e.preventDefault(); drop.classList.remove('hot');
+}));
+drop.addEventListener('drop', (e) => addFiles(e.dataTransfer.files));
+
+/** Decode any image (SVG included) and re-raster it to a sane working size. */
+function rasterize(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const w0 = img.naturalWidth  || 1000;
+      const h0 = img.naturalHeight || 1000;
+      // An SVG reports its physical size (89 mm ≈ 336 CSS px), which is far too
+      // coarse to sample features from. Vector art is re-rastered UP to the
+      // working size; photographs and scans are only ever scaled down.
+      const vector = /svg/i.test(file.type) || /\.svg$/i.test(file.name);
+      const k = vector ? MAX_EDGE / Math.max(w0, h0)
+                       : Math.min(1, MAX_EDGE / Math.max(w0, h0));
+      const c = document.createElement('canvas');
+      c.width  = Math.round(w0 * k);
+      c.height = Math.round(h0 * k);
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff';                    // flatten transparency to paper
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+
+      const out = new Image();
+      out.onload = () => resolve(out);
+      out.onerror = reject;
+      out.src = c.toDataURL('image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode failed')); };
+    img.src = url;
+  });
+}
+
+async function addFiles(files) {
+  for (const f of [...files]) {
+    try {
+      entries.push({ name: f.name, image: await rasterize(f) });
+    } catch {
+      say(`Could not read ${f.name}. Try exporting it as PNG.`, 'bad');
+    }
+  }
+  render();
+}
+
+function render() {
+  list.innerHTML = '';
+  entries.forEach((e, i) => {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <img src="${e.image.src}" alt="">
+      <div class="meta">
+        <b>${e.name}</b>
+        <span>target ${i} · ${e.image.naturalWidth} × ${e.image.naturalHeight} px</span>
+      </div>
+      <div class="verdict" id="v${i}" hidden></div>`;
+    list.appendChild(row);
+  });
+  go.disabled = entries.length === 0;
+}
+
+/* A target's strength is roughly how many feature points the compiler found
+   across its pyramid levels. Surfacing it early saves a printing run. */
+function countKeypoints(data) {
+  try {
+    return (data.matchingData || []).reduce((sum, level) =>
+      sum + (level.maximaPoints?.length || 0) + (level.minimaPoints?.length || 0), 0);
+  } catch { return null; }
+}
+
+go.addEventListener('click', async () => {
+  go.disabled = true;
+  after.hidden = true;
+  barWrap.hidden = false;
+  compiled = null;
+
+  /* Compiling is a long WebGL job with no cancel. Without a live readout there
+     is no way to tell "slow because this machine fell back to the CPU" from
+     "wedged", so report percentage and elapsed time on every tick and speak up
+     when progress stops moving. */
+  const t0 = Date.now();
+  let pct = 0, lastMove = Date.now(), done = false;
+
+  const tick = setInterval(() => {
+    if (done) return;
+    const secs = Math.round((Date.now() - t0) / 1000);
+    go.textContent = `Compiling… ${pct.toFixed(0)}% · ${secs}s`;
+    const stalled = Math.round((Date.now() - lastMove) / 1000);
+    if (stalled > 25) {
+      say(`No progress for ${stalled}s. This machine is most likely compiling `
+        + `without GPU acceleration, which can take several minutes. Keep the tab `
+        + `in the foreground — background tabs get throttled and stall further.`, 'warn');
+    } else if (secs > 12) {
+      say('Still working. Keep this tab in the foreground.', '');
+    }
+  }, 500);
+
+  try {
+    say('Compiling…');
+    const compiler = new Compiler();
+    const dataList = await compiler.compileImageTargets(
+      entries.map(e => e.image),
+      (p) => { pct = Number(p) || 0; lastMove = Date.now(); bar.style.width = pct + '%'; });
+
+    (dataList || []).forEach((d, i) => {
+      const el = $('v' + i);
+      if (!el) return;
+      const n = countKeypoints(d);
+      el.hidden = false;
+      if (n == null)     { el.textContent = 'compiled';          el.className = 'verdict v-ok'; }
+      else if (n >= 400) { el.textContent = n + ' pts · strong'; el.className = 'verdict v-strong'; }
+      else if (n >= 150) { el.textContent = n + ' pts · usable'; el.className = 'verdict v-ok'; }
+      else               { el.textContent = n + ' pts · weak';   el.className = 'verdict v-weak'; }
+    });
+
+    compiled = compiler.exportData();
+
+    /* MindAR normalises a target to 1 unit WIDE and gives no way to ask how
+       tall it is, so card.html cannot know an 89 x 51 mm card is not square.
+       Record each target's aspect here, where the images are still in hand. */
+    meta = {
+      targets: entries.map((e, i) => ({
+        index: i,
+        name: e.name,
+        width: e.image.naturalWidth,
+        height: e.image.naturalHeight,
+        aspect: +(e.image.naturalWidth / e.image.naturalHeight).toFixed(4),
+        keypoints: countKeypoints((dataList || [])[i] || {}),
+      })),
+    };
+
+    bar.style.width = '100%';
+    const kb = Math.round((compiled.byteLength ?? compiled.length) / 1024);
+    say(`Compiled ${entries.length} target(s) in ${((Date.now() - t0) / 1000).toFixed(1)}s `
+      + `· ${kb} KB. Now save it.`, 'good');
+    after.hidden = false;
+    go.textContent = 'Compile again';
+  } catch (err) {
+    console.error(err);
+    say(`Compile failed: ${err?.message || err}. Details are in the browser console.`, 'bad');
+    go.textContent = 'Try again';
+  } finally {
+    // Whatever happened, the button must never be left reading "Compiling…".
+    done = true;
+    clearInterval(tick);
+    go.disabled = false;
+  }
+});
+
+/* Writing straight to disk beats the downloads folder: the dev server accepts a
+   PUT and drops the file exactly where card.html looks for it. Only available
+   while `npm run ar:serve` is serving this page. */
+$('saveDisk').addEventListener('click', async () => {
+  if (!compiled) return;
+  try {
+    const res = await fetch(SAVE_URL, { method: 'PUT', body: compiled });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const info = await res.json();
+
+    const res2 = await fetch(META_URL, {
+      method: 'PUT', body: JSON.stringify(meta, null, 2),
+    });
+    if (!res2.ok) throw new Error(`sidecar: ${res2.status} ${await res2.text()}`);
+
+    say(`Saved public/${info.path} (${Math.round(info.bytes / 1024)} KB) and `
+      + `vayam.targets.json. Open /ar/card.html to test it.`, 'good');
+  } catch (err) {
+    say(`Could not write to disk (${err.message}). That button only works under `
+      + `npm run ar:serve — use Download instead and move the file yourself.`, 'warn');
+  }
+});
+
+function grab(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);   // Firefox ignores click() on a detached anchor
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+$('download').addEventListener('click', () => {
+  if (!compiled) return;
+  // Both files matter. Without the sidecar, card.html has to guess the printed
+  // shape and the model ends up overhanging the paper.
+  grab(new Blob([compiled], { type: 'application/octet-stream' }), 'vayam.mind');
+  setTimeout(() => grab(
+    new Blob([JSON.stringify(meta, null, 2)], { type: 'application/json' }),
+    'vayam.targets.json'), 400);
+  say('Downloaded vayam.mind and vayam.targets.json — move both into '
+    + 'public/ar/targets/.', 'good');
+});
+</script>
+</body>
+</html>

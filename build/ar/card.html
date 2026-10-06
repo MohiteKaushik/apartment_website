@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Vayam · Scan the card</title>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@300&display=swap" rel="stylesheet">
+<style>
+  :root { --gold:#c49a3c; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; overflow:hidden; background:#000; color:#fff;
+              font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+              overscroll-behavior:none; }
+
+  #ar { position:fixed; inset:0; }
+  #ar video, #ar canvas { object-fit:cover; }
+
+  .layer { position:fixed; inset:0; display:flex; flex-direction:column;
+           align-items:center; justify-content:center; text-align:center;
+           padding:32px 26px calc(32px + env(safe-area-inset-bottom)); }
+  .layer[hidden] { display:none; }
+
+  #gate  { background:#0a0a0a; z-index:40; }
+  #load  { background:rgba(0,0,0,.88); z-index:30; }
+  #fail  { background:#0a0a0a; z-index:50; }
+  #scan  { z-index:10; pointer-events:none; justify-content:flex-end; }
+
+  .mark { font-family:'Playfair Display',serif; font-weight:300;
+          font-size:24px; letter-spacing:.32em; margin-bottom:6px; }
+  .sub  { font-size:11px; letter-spacing:.24em; text-transform:uppercase;
+          color:var(--gold); margin-bottom:30px; }
+  h1 { font-size:19px; font-weight:600; margin:0 0 10px; letter-spacing:.01em; }
+  p  { font-size:13px; line-height:1.65; color:rgba(255,255,255,.55);
+       margin:0 0 8px; max-width:340px; }
+  code { font-size:12px; background:rgba(255,255,255,.08); padding:2px 6px;
+         border-radius:4px; color:var(--gold); word-break:break-all; }
+
+  .cta { margin-top:26px; padding:15px 34px; border:none; border-radius:100px;
+         background:var(--gold); color:#000; font:inherit; font-size:15px;
+         font-weight:600; letter-spacing:.02em; cursor:pointer; }
+  .cta:active { transform:scale(.97); }
+  .link { margin-top:20px; font-size:12px; color:rgba(255,255,255,.4);
+          text-decoration:none; border-bottom:1px solid rgba(255,255,255,.18);
+          padding-bottom:2px; }
+
+  /* Scanning reticle */
+  .frame { width:min(72vw,290px); aspect-ratio:1.75; position:relative; margin-bottom:auto; margin-top:auto; }
+  .frame i { position:absolute; width:30px; height:30px; border:2px solid var(--gold); }
+  .frame i:nth-child(1){ top:0;left:0;    border-right:0;border-bottom:0;border-radius:6px 0 0 0; }
+  .frame i:nth-child(2){ top:0;right:0;   border-left:0; border-bottom:0;border-radius:0 6px 0 0; }
+  .frame i:nth-child(3){ bottom:0;left:0; border-right:0;border-top:0;   border-radius:0 0 0 6px; }
+  .frame i:nth-child(4){ bottom:0;right:0;border-left:0; border-top:0;   border-radius:0 0 6px 0; }
+  .sweep { position:absolute; left:6px; right:6px; height:2px; border-radius:2px;
+           background:linear-gradient(90deg,transparent,var(--gold),transparent);
+           animation:sweep 2.4s ease-in-out infinite; }
+  @keyframes sweep { 0%,100%{top:6%;opacity:.15} 50%{top:94%;opacity:.9} }
+  #scanMsg { font-size:12px; letter-spacing:.2em; text-transform:uppercase;
+             color:rgba(255,255,255,.75); text-shadow:0 1px 8px #000;
+             background:rgba(0,0,0,.45); padding:9px 18px; border-radius:100px;
+             backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); }
+
+  /* Head-up bar shown once the model is on the card */
+  #hud { position:fixed; left:0; right:0; z-index:20;
+         bottom:calc(16px + env(safe-area-inset-bottom));
+         display:flex; gap:8px; justify-content:center; padding:0 12px; }
+  #hud[hidden] { display:none; }
+  .chip { border:1px solid rgba(255,255,255,.16); background:rgba(0,0,0,.55);
+          backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+          color:#fff; font:inherit; font-size:11px; letter-spacing:.1em;
+          text-transform:uppercase; padding:11px 16px; border-radius:100px;
+          cursor:pointer; text-decoration:none; white-space:nowrap; }
+  .chip:active { background:rgba(255,255,255,.14); }
+  .chip.on { background:var(--gold); border-color:var(--gold); color:#000; }
+
+  #back { position:fixed; top:calc(12px + env(safe-area-inset-top)); left:14px; z-index:20;
+          width:38px; height:38px; border-radius:50%; display:flex; align-items:center;
+          justify-content:center; font-size:19px; color:#fff; text-decoration:none;
+          background:rgba(0,0,0,.5); backdrop-filter:blur(14px);
+          -webkit-backdrop-filter:blur(14px); border:1px solid rgba(255,255,255,.12); }
+
+  .bar { width:220px; height:2px; background:rgba(255,255,255,.12);
+         border-radius:2px; overflow:hidden; margin-top:22px; }
+  .bar i { display:block; height:100%; width:0%; background:var(--gold); transition:width .25s; }
+</style>
+</head>
+<body>
+
+<div id="ar"></div>
+<a id="back" href="/ar/index.html" title="Back">←</a>
+
+<!-- Camera must be requested from a tap: iOS Safari will not prompt otherwise. -->
+<div class="layer" id="gate">
+  <div class="mark">VAYAM</div>
+  <div class="sub" id="gateUnit">3 BHK</div>
+  <h1>Show the flat on your card</h1>
+  <p>Keep the printed Vayam card or pamphlet flat on a table in good light, then
+     hold your phone about 20&nbsp;cm above it.</p>
+  <button class="cta" id="startBtn">Start camera</button>
+  <a class="link" href="/ar/index.html">No card? Use the 3D view instead</a>
+</div>
+
+<div class="layer" id="load" hidden>
+  <div class="mark">VAYAM</div>
+  <p id="loadMsg">Preparing the model…</p>
+  <div class="bar"><i id="loadBar"></i></div>
+</div>
+
+<div class="layer" id="fail" hidden>
+  <div class="mark">VAYAM</div>
+  <h1 id="failTitle">Something went wrong</h1>
+  <p id="failMsg"></p>
+  <a class="link" href="/ar/index.html">Back to the 3D view</a>
+</div>
+
+<div class="layer" id="scan" hidden>
+  <div class="frame"><i></i><i></i><i></i><i></i><div class="sweep"></div></div>
+  <div id="scanMsg">Point at the Vayam card</div>
+</div>
+
+<div id="hud" hidden>
+  <button class="chip" id="chipSpin">Spin</button>
+  <button class="chip" id="chipHold">Hold in place</button>
+  <button class="chip" id="chipReset">Reset</button>
+</div>
+
+<!-- Import-map polyfill for Safari &lt; 16.4. No-op on browsers with native support. -->
+<script async src="https://cdn.jsdelivr.net/npm/es-module-shims@2.6.4/dist/es-module-shims.js"></script>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+  }
+}
+</script>
+
+<script type="module">
+/* ───────────────────────────────────────────────────────────────
+   Vayam · image-target AR
+
+   three is pinned to 0.160.0 here, NOT the 0.184 the React app uses.
+   MindAR 1.2.5 imports `sRGBEncoding`, which three removed after 0.163.
+   That is the whole reason this page lives outside the React bundle:
+   two three.js versions cannot share one webpack graph, but two
+   separate HTML pages coexist happily.
+   ─────────────────────────────────────────────────────────────── */
+
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { UNITS, currentUnitKey } from '/ar/units.js';
+
+const TARGET_SRC = '/ar/targets/vayam.mind';
+const META_SRC   = '/ar/targets/vayam.targets.json';
+const FILL       = 0.86;   // fraction of the printed card the model is allowed to cover
+const MAX_TARGETS = 3;     // anchor every target the .mind file might contain
+
+const key  = currentUnitKey();
+const unit = UNITS[key];
+document.getElementById('gateUnit').textContent = unit.label;
+
+const $ = (id) => document.getElementById(id);
+const show = (id, on = true) => { $(id).hidden = !on; };
+
+function fail(title, msg) {
+  show('load', false); show('scan', false); show('gate', false); show('hud', false);
+  $('failTitle').textContent = title;
+  $('failMsg').innerHTML = msg;
+  show('fail', true);
+}
+
+/* ── Model state ───────────────────────────────────────────── */
+let mindar, pivot, model, anchors = [];
+let spin = false, held = false, baseScale = 1, activeAnchor = null;
+let targetMeta = null;   // printed shape of each target, written by compile.html
+let modelSize = null;    // the flat's own metre dimensions, kept for refitting
+let fitYaw = 0;          // yaw chosen by the fit, and where Reset returns to
+let userScale = 1, userYaw = 0;
+
+/* MindAR normalises every target to 1 unit wide whatever its real shape, and
+   offers no way to ask how tall it is. Fitting to width alone makes a 10 m flat
+   hang well off the ends of an 89 x 51 mm card. The sidecar written by
+   compile.html carries each printed aspect, so fit against both edges — and try
+   the flat both ways round on the paper, keeping whichever sits larger. */
+function fitTo(targetIndex) {
+  if (!modelSize) return;
+  const aspect = targetMeta?.targets?.[targetIndex]?.aspect || 1;
+  const planeW = 1, planeH = 1 / aspect;
+
+  const straight = Math.min(FILL * planeW / modelSize.x, FILL * planeH / modelSize.z);
+  const turned   = Math.min(FILL * planeW / modelSize.z, FILL * planeH / modelSize.x);
+  const quarterTurn = turned > straight;
+
+  baseScale = quarterTurn ? turned : straight;
+  fitYaw = quarterTurn ? Math.PI / 2 : 0;
+  userYaw = fitYaw;
+}
+
+/* Load the GLB once, up front, so the camera does not sit idle behind a
+   multi-megabyte download while the user is already pointing at the card. */
+async function loadModel() {
+  const draco = new DRACOLoader()
+    .setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/libs/draco/gltf/');
+  const loader = new GLTFLoader().setDRACOLoader(draco);
+
+  const gltf = await loader.loadAsync(unit.card, (e) => {
+    if (e.lengthComputable) $('loadBar').style.width = (e.loaded / e.total * 100) + '%';
+  });
+  draco.dispose();
+
+  const root = gltf.scene;
+
+  // Sit the model on the paper: centre it in X/Z and drop its floor to y = 0.
+  const box  = new THREE.Box3().setFromObject(root);
+  const size = box.getSize(new THREE.Vector3());
+  const mid  = box.getCenter(new THREE.Vector3());
+  root.position.set(-mid.x, -box.min.y, -mid.z);
+
+  modelSize = size;
+  fitTo(0);
+
+  const spinner = new THREE.Group();   // yaw, seeded by the fit and then by the user
+  spinner.add(root);
+
+  const scaler = new THREE.Group();    // uniform scale
+  scaler.add(spinner);
+
+  // MindAR's anchor space is the printed image lying in XY with +Z out of the
+  // paper. A Y-up building has to be tipped a quarter turn to stand on it.
+  pivot = new THREE.Group();
+  pivot.rotation.x = Math.PI / 2;
+  pivot.add(scaler);
+
+  model = { root, spinner, scaler };
+  applyTransform();
+  return pivot;
+}
+
+function applyTransform() {
+  model.scaler.scale.setScalar(baseScale * userScale);
+  model.spinner.rotation.y = userYaw;
+}
+
+/* ── Startup ───────────────────────────────────────────────── */
+async function start() {
+  show('gate', false);
+  show('load', true);
+
+  // A missing .mind file is the single most likely first-run problem, and
+  // MindAR's own error for it is opaque. Check it plainly instead.
+  $('loadMsg').textContent = 'Checking the image target…';
+  const head = await fetch(TARGET_SRC, { method: 'HEAD' }).catch(() => null);
+  if (!head || !head.ok) {
+    return fail('No image target compiled yet',
+      `Drop your printed artwork into <code>/ar/compile.html</code>, then save the
+       result as <code>public/ar/targets/vayam.mind</code>. A ready-to-print
+       card design is in <code>public/ar/print/</code>.`);
+  }
+
+  // Optional: absent only if the target was compiled by an older build.
+  targetMeta = await fetch(META_SRC).then(r => r.ok ? r.json() : null).catch(() => null);
+
+  $('loadMsg').textContent = 'Loading the flat…';
+  let group;
+  try {
+    group = await loadModel();
+  } catch (err) {
+    console.error('[vayam-ar]', err);
+    return fail('Could not load the 3D model',
+      `<code>${unit.card}</code> failed to load. Run <code>npm run models:ar</code>
+       to generate the AR variants.`);
+  }
+
+  $('loadMsg').textContent = 'Starting the camera…';
+  mindar = new MindARThree({
+    container: $('ar'),
+    imageTargetSrc: TARGET_SRC,
+    uiLoading: 'no', uiScanning: 'no', uiError: 'no',
+    // Heavier smoothing than the default: a hand-held phone over a small card
+    // is the jitteriest case image tracking has.
+    filterMinCF: 0.0001,
+    filterBeta: 0.001,
+    warmupTolerance: 2,
+    missTolerance: 8,
+    maxTrack: 1,
+  });
+
+  const { renderer, scene, camera } = mindar;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.NoToneMapping;      // textures are baked, unlit
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.2));
+
+  // Anchor every index the .mind file might hold, so one page works whether
+  // the developer compiled one card or a card per unit type.
+  for (let i = 0; i < MAX_TARGETS; i++) {
+    const a = mindar.addAnchor(i);
+    a.onTargetFound = () => onFound(a);
+    a.onTargetLost  = () => onLost(a);
+    anchors.push(a);
+  }
+  activeAnchor = anchors[0];
+  anchors[0].group.add(group);
+
+  try {
+    await mindar.start();
+  } catch (err) {
+    console.error('[vayam-ar]', err);
+    const insecure = location.protocol !== 'https:' && location.hostname !== 'localhost';
+    return fail(
+      insecure ? 'Camera needs HTTPS' : 'Camera unavailable',
+      insecure
+        ? 'Open this page over <code>https://</code>. Browsers block the camera on plain HTTP.'
+        : `Allow camera access and reload. If you opened this from inside Instagram,
+           WhatsApp or Facebook, tap the ⋯ menu and choose <b>Open in browser</b>.`);
+  }
+
+  renderer.setAnimationLoop(() => {
+    if (spin) { userYaw += 0.006; applyTransform(); }
+    renderer.render(scene, camera);
+  });
+
+  show('load', false);
+  show('scan', true);
+  bindGestures(renderer.domElement);
+}
+
+function onFound(anchor) {
+  if (held) return;
+  // The .mind file may hold several designs (card, A5 pamphlet, one per unit).
+  // Whichever the customer actually points at becomes the one the model rides.
+  if (activeAnchor !== anchor) {
+    activeAnchor = anchor;
+    fitTo(anchors.indexOf(anchor));   // a pamphlet is a different shape to a card
+    userScale = 1;
+    applyTransform();
+  }
+  if (pivot.parent !== anchor.group) anchor.group.add(pivot);
+  show('scan', false);
+  show('hud', true);
+}
+
+function onLost() {
+  if (held) return;
+  show('scan', true);
+  $('scanMsg').textContent = 'Point at the Vayam card';
+}
+
+/* ── Touch controls ────────────────────────────────────────── */
+function bindGestures(el) {
+  let mode = null, lastX = 0, startDist = 0, startScale = 1, lastTap = 0;
+
+  const dist = (t) => Math.hypot(
+    t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+
+  el.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      mode = 'pinch'; startDist = dist(e.touches); startScale = userScale;
+    } else if (e.touches.length === 1) {
+      mode = 'yaw'; lastX = e.touches[0].clientX;
+      const now = Date.now();
+      if (now - lastTap < 300) reset();
+      lastTap = now;
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (mode === 'pinch' && e.touches.length === 2) {
+      userScale = Math.min(4, Math.max(0.25, startScale * dist(e.touches) / startDist));
+    } else if (mode === 'yaw' && e.touches.length === 1) {
+      const x = e.touches[0].clientX;
+      userYaw += (x - lastX) * 0.008;
+      lastX = x;
+      spin = false; $('chipSpin').classList.remove('on');
+    } else return;
+    applyTransform();
+    e.preventDefault();
+  }, { passive: false });
+
+  el.addEventListener('touchend', () => { mode = null; }, { passive: true });
+}
+
+function reset() {
+  userScale = 1; userYaw = fitYaw; applyTransform();
+}
+
+/* ── HUD ───────────────────────────────────────────────────── */
+$('startBtn').addEventListener('click', start, { once: true });
+
+$('chipSpin').addEventListener('click', (e) => {
+  spin = !spin;
+  e.currentTarget.classList.toggle('on', spin);
+});
+
+$('chipReset').addEventListener('click', reset);
+
+// "Hold in place" detaches the model from the card and parks it in world space.
+// A 89 × 51 mm visiting card leaves the frame the moment you lean in for a
+// close look; this lets people walk around the model once it has been placed.
+$('chipHold').addEventListener('click', (e) => {
+  held = !held;
+  e.currentTarget.classList.toggle('on', held);
+  e.currentTarget.textContent = held ? 'Back to card' : 'Hold in place';
+  if (held) {
+    mindar.scene.attach(pivot);          // attach() preserves the world pose
+    show('scan', false);
+  } else {
+    (activeAnchor || anchors[0]).group.attach(pivot);
+    pivot.position.set(0, 0, 0);
+    pivot.rotation.set(Math.PI / 2, 0, 0);
+    pivot.scale.setScalar(1);
+  }
+});
+
+// Release the camera when the page is backgrounded or closed.
+addEventListener('pagehide', () => {
+  try { mindar?.renderer?.setAnimationLoop(null); mindar?.stop(); } catch {}
+});
+</script>
+</body>
+</html>

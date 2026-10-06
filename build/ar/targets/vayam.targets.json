@@ -1,0 +1,20 @@
+{
+  "targets": [
+    {
+      "index": 0,
+      "name": "target-card.svg",
+      "width": 1024,
+      "height": 588,
+      "aspect": 1.7415,
+      "keypoints": 2812
+    },
+    {
+      "index": 1,
+      "name": "target-a5.svg",
+      "width": 721,
+      "height": 1024,
+      "aspect": 0.7041,
+      "keypoints": 3565
+    }
+  ]
+}
