@@ -529,6 +529,8 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb'
                   : is2BHK ? '/assets/models/flat_2bhk.glb'
                   : '/assets/models/flat.glb';
+  // Key understood by /ar/units.js — keep the two in step when units change.
+  const arUnit  = is3BHK ? '3bhk' : is2BHK ? '2bhk' : '4bhk';
   const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png'
                      : is2BHK ? '/assets/images/2bhk_flat_plan.png'
                      : '/assets/images/floorplan.png';
@@ -649,6 +651,34 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     <span style={{ fontSize: 16 }}>🥽</span>
                     <span>{isVRPresenting ? 'Exit VR' : 'Enter VR'}</span>
                   </motion.button>
+                )}
+
+                {/* ── AR entry — opens the standalone WebAR page ──
+                     Deliberately a plain link, not a React route: the AR page
+                     pins its own three.js version and must not share this
+                     bundle. See public/ar/README.md. */}
+                {!isVRPresenting && (
+                  <motion.a
+                    href={`/ar/?unit=${arUnit}`}
+                    className="absolute z-30 flex items-center gap-2 text-xs tracking-[0.18em] uppercase font-semibold rounded-full transition-all duration-300"
+                    style={{
+                      bottom: 28, right: 16,
+                      padding: '10px 18px',
+                      background: 'rgba(0,0,0,0.6)',
+                      border: '1px solid rgba(196,154,60,0.5)',
+                      color: '#c49a3c',
+                      backdropFilter: 'blur(12px)',
+                      textDecoration: 'none',
+                    }}
+                    whileHover={{ scale: 1.04 }}
+                    whileTap={{ scale: 0.96 }}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.35 }}
+                  >
+                    <span style={{ fontSize: 16 }}>📱</span>
+                    <span>View in AR</span>
+                  </motion.a>
                 )}
 
                 {/* VR Active indicator + controller hint */}
