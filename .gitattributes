@@ -1,0 +1,10 @@
+# Keep text files LF in the repo regardless of the OS that commits them
+* text=auto
+
+# Binary assets
+*.glb binary
+*.mind binary
+*.mp4 binary
+*.png binary
+*.jpg binary
+*.webp binary
