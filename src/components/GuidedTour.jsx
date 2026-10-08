@@ -12,10 +12,14 @@ import * as THREE from 'three';
    Desktop / mobile:  ‹ › buttons, room chips, ← → keys = change room
                       ▲ ▼ buttons (hold) or ↑ ↓ / W S keys = move
                       drag = look around
-   VR (Quest):        trigger or A → next room, X → previous room
+   VR (Quest):        A → next room, X → previous room
+                      point the controller at the floating panel and pull
+                      the trigger to pick a room; trigger elsewhere = next
                       either stick ↕ → move forward / back
                       either stick ↔ → 45° snap turn
                       B → exit VR + back, Y → exit VR + enquire
+   The room name (and the highlighted chip) follows wherever the
+   visitor actually is, including after walking there themselves.
 
    Between rooms the camera follows pre-computed routes through the
    doorways (src/data/tourRoutes.json, from `npm run tours:routes`).
@@ -69,7 +73,7 @@ const WALL_GAP    = 0.35;  // stop this far from walls / furniture
 const RAY_HEIGHTS = [0.35, 1.0];   // knee and waist height above the floor
 
 /* ── controller (lives inside <Canvas>) ────────────────── */
-export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, onBack, onEnquire }) {
+export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, onStopChange, onBack, onEnquire }) {
   const { camera, gl } = useThree();
   const originRef = useRef(null);
 
@@ -81,6 +85,7 @@ export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, 
   const moveInput = useRef(0);              // -1 back, 0, +1 forward (buttons / keys)
   const btnPrev   = useRef({});
   const stickPrev = useRef({});
+  const lastRoomCheck = useRef(0);
   const ray       = useMemo(() => { const r = new THREE.Raycaster(); r.firstHitOnly = true; return r; }, []);
   const onBackRef    = useRef(onBack);
   const onEnquireRef = useRef(onEnquire);
@@ -164,6 +169,9 @@ export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, 
       next: () => goTo(stopIdx.current + 1),
       prev: () => goTo(stopIdx.current - 1),
       setMove: (v) => { moveInput.current = v; },
+      /* Point at the nearest stop without moving (used when the visitor
+         walks into another room on their own). */
+      setIndex: (i) => { stopIdx.current = i; onStopRef.current?.(i); },
       index: () => stopIdx.current,
     };
     return () => { if (apiRef) apiRef.current = null; };
@@ -288,8 +296,11 @@ export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, 
               const now = gp.buttons[i].pressed;
               if (now && !btnPrev.current[key]) {
                 const isTrigger = i === 0, isAX = i === 4, isBY = i === 5;
-                if (hand === 'right' && (isTrigger || isAX)) apiRef?.current?.next();
-                if (hand === 'left'  && (isTrigger || isAX)) apiRef?.current?.prev();
+                // A trigger pull while pointing at the floating menu is a click
+                // on that menu (handled by the menu itself), not next / previous.
+                const onMenu = isTrigger && (menuHoverRef?.current || 0) > 0;
+                if (hand === 'right' && (isTrigger || isAX) && !onMenu) apiRef?.current?.next();
+                if (hand === 'left'  && (isTrigger || isAX) && !onMenu) apiRef?.current?.prev();
                 if (hand === 'right' && isBY) { session.end(); onBackRef.current?.(); }
                 if (hand === 'left'  && isBY) { session.end(); onEnquireRef.current?.(); }
               }
@@ -317,6 +328,18 @@ export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, 
       }
     }
 
+    /* ── which room are we in? (after walking or sliding on our own) ──
+       Nearest stop wins, with a margin so the label doesn't flicker on a
+       boundary. Checked a few times a second, never mid-glide. */
+    if (!anim.current && performance.now() - lastRoomCheck.current > 300) {
+      lastRoomCheck.current = performance.now();
+      const here = headXZ();
+      const cur  = stopIdx.current;
+      let best = cur, bestD = dist(here, tour.stops[cur]);
+      tour.stops.forEach((st, i) => { const d = dist(here, st); if (d < bestD - 0.8) { best = i; bestD = d; } });
+      if (best !== cur) apiRef?.current?.setIndex(best);
+    }
+
     if (presenting) return;
 
     /* ── non-VR camera ── */
@@ -330,64 +353,136 @@ export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, 
   return <XROrigin ref={originRef} position={[s0.x, 0, s0.z]} rotation={[0, s0.yaw, 0]} />;
 }
 
-/* ── VR heads-up panel: current room + what the buttons do ── */
-function drawHud(ctx, w, h, title, sub, hint) {
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(10,10,10,0.78)';
-  ctx.beginPath(); ctx.roundRect(0, 0, w, h, 36); ctx.fill();
-  ctx.strokeStyle = 'rgba(196,154,60,0.7)'; ctx.lineWidth = 4; ctx.stroke();
-  ctx.textAlign = 'center';
-  ctx.fillStyle = '#c49a3c'; ctx.font = '600 28px sans-serif'; ctx.fillText(sub, w / 2, 56);
-  ctx.fillStyle = '#ffffff'; ctx.font = '500 64px sans-serif'; ctx.fillText(title, w / 2, 136);
-  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '400 26px sans-serif'; ctx.fillText(hint, w / 2, 198);
+/* ── VR floating panel: room name + room buttons ──────────
+   Drawn on one canvas texture; invisible hit meshes over each
+   room button pick up the controller ray (hover + trigger).
+   Follows the gaze lazily, but stays still while you're looking
+   roughly at it so it can be pointed at. */
+const HUD_W = 1024;
+const HUD_PAD = 36, HUD_CHIP_H = 64, HUD_CHIP_GAP = 14, HUD_ROW_GAP = 14;
+
+function layoutHud(stops, ctx) {
+  ctx.font = '500 26px sans-serif';
+  const rows = [[]];
+  let x = HUD_PAD;
+  const chips = stops.map((st, i) => {
+    const w = Math.ceil(ctx.measureText(st.label.toUpperCase()).width) + 44;
+    if (x + w > HUD_W - HUD_PAD && rows[rows.length - 1].length) { rows.push([]); x = HUD_PAD; }
+    const c = { i, w, x, row: rows.length - 1 };
+    rows[rows.length - 1].push(c); x += w + HUD_CHIP_GAP;
+    return c;
+  });
+  // centre each row
+  rows.forEach((row) => {
+    const total = row.reduce((n, c) => n + c.w, 0) + HUD_CHIP_GAP * (row.length - 1);
+    let cx = (HUD_W - total) / 2;
+    row.forEach((c) => { c.x = cx; cx += c.w + HUD_CHIP_GAP; });
+  });
+  const top = 176;
+  chips.forEach((c) => { c.y = top + c.row * (HUD_CHIP_H + HUD_ROW_GAP); c.h = HUD_CHIP_H; });
+  const height = top + rows.length * (HUD_CHIP_H + HUD_ROW_GAP) + 52;
+  return { chips, height };
 }
 
-export function TourHUD({ tour, stopIndex, visible }) {
+function drawHud(ctx, W, H, tour, stopIndex, hovered, chips) {
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(8,8,8,0.82)';
+  ctx.beginPath(); ctx.roundRect(0, 0, W, H, 34); ctx.fill();
+  ctx.strokeStyle = 'rgba(196,154,60,0.6)'; ctx.lineWidth = 4; ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = '#c49a3c'; ctx.font = '600 24px sans-serif';
+  ctx.fillText(`${stopIndex + 1} / ${tour.stops.length}   ·   YOU ARE IN`, W / 2, 52);
+  ctx.fillStyle = '#ffffff'; ctx.font = '500 60px sans-serif';
+  ctx.fillText(tour.stops[stopIndex].label, W / 2, 124);
+  ctx.font = '500 26px sans-serif'; ctx.textBaseline = 'middle';
+  chips.forEach((c) => {
+    const active = c.i === stopIndex, hov = c.i === hovered;
+    ctx.fillStyle = active ? 'rgba(196,154,60,0.32)' : hov ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.07)';
+    ctx.beginPath(); ctx.roundRect(c.x, c.y, c.w, c.h, c.h / 2); ctx.fill();
+    ctx.strokeStyle = active ? 'rgba(196,154,60,0.95)' : hov ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = active || hov ? 3 : 2; ctx.stroke();
+    ctx.fillStyle = active ? '#e8c874' : hov ? '#ffffff' : 'rgba(255,255,255,0.72)';
+    ctx.fillText(tour.stops[c.i].label.toUpperCase(), c.x + c.w / 2, c.y + c.h / 2 + 1);
+  });
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '400 23px sans-serif';
+  ctx.fillText('Point + trigger: pick a room   ·   A: next   X: previous   ·   Stick: move / turn   ·   B: exit', W / 2, H - 22);
+}
+
+export function TourHUD({ tour, stopIndex, visible, onGoTo, hoverRef }) {
   const { gl } = useThree();
   const ref = useRef();
-  const W = 1024, H = 232;
-  const { texture, ctx } = useMemo(() => {
-    const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const following = useRef(true);
+  const [hovered, setHovered] = React.useState(-1);
+  const { texture, ctx, canvas } = useMemo(() => {
+    const c = document.createElement('canvas'); c.width = HUD_W; c.height = 512;
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-    return { texture: t, ctx: c.getContext('2d') };
+    return { texture: t, ctx: c.getContext('2d'), canvas: c };
   }, []);
+  const { chips, height } = useMemo(() => layoutHud(tour.stops, ctx), [tour, ctx]);
+  const PANEL_W = 1.15;                               // metres
+  const PANEL_H = PANEL_W * height / HUD_W;
+  const px = (v) => (v / HUD_W) * PANEL_W;            // canvas px → metres
 
   useEffect(() => {
-    const stop = tour.stops[stopIndex];
-    drawHud(ctx, W, H, stop.label, `${stopIndex + 1} / ${tour.stops.length}`,
-      'Trigger / A  next room  ·  X  previous  ·  Stick ↕  move  ·  B  exit');
+    if (canvas.height !== height) { canvas.height = height; }
+    drawHud(ctx, HUD_W, height, tour, stopIndex, hovered, chips);
     texture.needsUpdate = true;
-  }, [tour, stopIndex, ctx, texture]);
+  }, [tour, stopIndex, hovered, chips, ctx, texture, canvas, height]);
 
-  // Lazy follow: sits 1.6 m ahead, a little below eye line, eases towards the gaze
   useFrame(() => {
     if (!ref.current || !gl.xr.isPresenting) return;
     const cam = gl.xr.getCamera();
     const p = new THREE.Vector3(), d = new THREE.Vector3();
     cam.getWorldPosition(p); cam.getWorldDirection(d);
     d.y = 0; d.normalize();
-    const target = p.clone().addScaledVector(d, 1.6); target.y = p.y - 0.45;
-    ref.current.position.lerp(target, 0.08);
+    const target = p.clone().addScaledVector(d, 1.7); target.y = p.y - 0.25;
+    const toPanel = ref.current.position.clone().sub(p);
+    const flat = toPanel.clone().setY(0);
+    const angle = flat.lengthSq() > 1e-6 ? flat.angleTo(d) : Math.PI;
+    const off = Math.abs(flat.length() - 1.7) > 0.7 || Math.abs(toPanel.y + 0.25) > 0.6;
+    // start following when the panel drifts out of view; stop once it's centred
+    if (angle > 0.6 || off) following.current = true;
+    if (following.current) {
+      ref.current.position.lerp(target, 0.08);
+      if (ref.current.position.distanceTo(target) < 0.03) following.current = false;
+    }
     ref.current.lookAt(p.x, ref.current.position.y, p.z);
   });
 
+  const enter = (i) => (e) => { e.stopPropagation(); setHovered(i); if (hoverRef) hoverRef.current = (hoverRef.current || 0) + 1; };
+  const leave = () => { setHovered(-1); if (hoverRef) hoverRef.current = Math.max(0, (hoverRef.current || 0) - 1); };
+
   return (
-    <mesh ref={ref} visible={visible} renderOrder={999}>
-      <planeGeometry args={[1.0, 1.0 * H / W]} />
-      <meshBasicMaterial map={texture} transparent depthTest={false} />
-    </mesh>
+    <group ref={ref} visible={visible} renderOrder={999}>
+      <mesh>
+        <planeGeometry args={[PANEL_W, PANEL_H]} />
+        <meshBasicMaterial map={texture} transparent depthTest={false} />
+      </mesh>
+      {/* invisible hit areas over the room buttons */}
+      {visible && chips.map((c) => (
+        <mesh key={c.i}
+          position={[px(c.x + c.w / 2) - PANEL_W / 2, PANEL_H / 2 - px(c.y + c.h / 2), 0.005]}
+          onPointerOver={enter(c.i)} onPointerOut={leave}
+          onClick={(e) => { e.stopPropagation(); onGoTo(c.i); }}>
+          <planeGeometry args={[px(c.w), px(c.h)]} />
+          <meshBasicMaterial transparent opacity={0} depthTest={false} />
+        </mesh>
+      ))}
+    </group>
   );
 }
 
 /* ── on-screen controls (outside the canvas) ───────────── */
+const GOLD = '#c49a3c';
 const roundBtn = (size, primary) => ({
-  width: size, height: size, borderRadius: size / 2, cursor: 'pointer',
-  background: primary ? '#c49a3c' : 'rgba(0,0,0,0.6)',
-  color: primary ? '#000' : '#c49a3c',
-  border: primary ? 'none' : '1px solid rgba(196,154,60,0.55)',
-  fontSize: primary ? 26 : 16, lineHeight: 1,
+  width: size, height: size, borderRadius: size / 2, cursor: 'pointer', flex: '0 0 auto',
+  background: primary ? GOLD : 'rgba(0,0,0,0.55)',
+  color: primary ? '#000' : GOLD,
+  border: primary ? 'none' : '1px solid rgba(196,154,60,0.5)',
+  fontSize: primary ? 22 : 13, lineHeight: 1,
   display: 'flex', alignItems: 'center', justifyContent: 'center',
-  boxShadow: '0 6px 20px rgba(0,0,0,0.4)', backdropFilter: 'blur(10px)',
+  boxShadow: '0 4px 14px rgba(0,0,0,0.35)', backdropFilter: 'blur(10px)',
   userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none',
 });
 
@@ -396,7 +491,7 @@ function HoldButton({ label, aria, onHold }) {
   const down = (e) => { e.preventDefault(); onHold(true); };
   const up   = () => onHold(false);
   return (
-    <motion.button aria-label={aria} whileTap={{ scale: 0.9 }} style={roundBtn(40, false)}
+    <motion.button aria-label={aria} whileTap={{ scale: 0.9 }} style={roundBtn(30, false)}
       onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
       onContextMenu={(e) => e.preventDefault()}>
       {label}
@@ -413,63 +508,56 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo, onMove }) {
 
   const stop = tour.stops[stopIndex];
   const navBtn = (label, onClick, aria) => (
-    <motion.button onClick={onClick} whileTap={{ scale: 0.9 }} aria-label={aria} style={roundBtn(52, true)}>
+    <motion.button onClick={onClick} whileTap={{ scale: 0.9 }} aria-label={aria} style={roundBtn(38, true)}>
       {label}
     </motion.button>
   );
 
   return (
-    // On phones the bar sits above the Enter VR button; on wider screens beside it
-    <motion.div className="absolute z-20 flex flex-col items-center bottom-[76px] md:bottom-4"
+    // Compact: one control row, one chip row, hugging the bottom edge.
+    // On phones it sits above the Enter VR button; on wider screens beside it.
+    <motion.div className="absolute z-20 flex flex-col items-center bottom-[70px] md:bottom-3"
       style={{ left: 0, right: 0, pointerEvents: 'none' }}
-      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
+      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
+
+      {/* ‹  name  ›   ▲▼ */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto', marginBottom: 6 }}>
+        {navBtn('‹', onPrev, 'Previous room')}
+        <div style={{ minWidth: 150, textAlign: 'center', padding: '6px 14px', borderRadius: 12,
+                      background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)',
+                      backdropFilter: 'blur(12px)' }}>
+          <div style={{ color: '#fff', fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>{stop.label}</div>
+          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.18em', marginTop: 2 }}>
+            {stopIndex + 1} / {tour.stops.length} · DRAG TO LOOK
+          </div>
+        </div>
+        {navBtn('›', onNext, 'Next room')}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginLeft: 4 }}>
+          <HoldButton label="▲" aria="Move forward" onHold={(on) => onMove(on ? 1 : 0)} />
+          <HoldButton label="▼" aria="Move back"    onHold={(on) => onMove(on ? -1 : 0)} />
+        </div>
+      </div>
 
       {/* room chips */}
       <div ref={chipsRef}
-        style={{ display: 'flex', gap: 6, overflowX: 'auto', maxWidth: '92vw', padding: '4px 8px',
-                 marginBottom: 8, pointerEvents: 'auto', scrollbarWidth: 'none' }}>
+        style={{ display: 'flex', gap: 4, overflowX: 'auto', maxWidth: '94vw', padding: '2px 8px',
+                 pointerEvents: 'auto', scrollbarWidth: 'none' }}>
         {tour.stops.map((s, i) => {
           const active = i === stopIndex;
           return (
             <button key={s.id} onClick={() => onGoTo(i)}
               style={{
-                flex: '0 0 auto', padding: '7px 14px', borderRadius: 999, cursor: 'pointer',
-                fontSize: 11, letterSpacing: '0.12em', textTransform: 'uppercase', whiteSpace: 'nowrap',
-                background: active ? 'rgba(196,154,60,0.25)' : 'rgba(0,0,0,0.55)',
-                border: `1px solid ${active ? 'rgba(196,154,60,0.8)' : 'rgba(255,255,255,0.15)'}`,
-                color: active ? '#c49a3c' : 'rgba(255,255,255,0.6)',
+                flex: '0 0 auto', padding: '4px 10px', borderRadius: 999, cursor: 'pointer',
+                fontSize: 9.5, letterSpacing: '0.1em', textTransform: 'uppercase', whiteSpace: 'nowrap',
+                background: active ? 'rgba(196,154,60,0.25)' : 'rgba(0,0,0,0.5)',
+                border: `1px solid ${active ? 'rgba(196,154,60,0.8)' : 'rgba(255,255,255,0.12)'}`,
+                color: active ? GOLD : 'rgba(255,255,255,0.55)',
                 backdropFilter: 'blur(10px)', transition: 'all 0.25s',
               }}>
               {s.label}
             </button>
           );
         })}
-      </div>
-
-      {/*        ▲
-             ‹  name  ›
-                   ▼          (▲ ▼ = move inside the room, ‹ › = change room) */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', gridTemplateRows: 'auto auto auto',
-                    alignItems: 'center', justifyItems: 'center', columnGap: 12, rowGap: 6,
-                    pointerEvents: 'auto' }}>
-        <div />
-        <HoldButton label="▲" aria="Move forward" onHold={(on) => onMove(on ? 1 : 0)} />
-        <div />
-
-        {navBtn('‹', onPrev, 'Previous room')}
-        <div style={{ minWidth: 170, textAlign: 'center', padding: '10px 18px', borderRadius: 14,
-                      background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)',
-                      backdropFilter: 'blur(12px)' }}>
-          <div style={{ color: '#fff', fontSize: 15, fontWeight: 500 }}>{stop.label}</div>
-          <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 10, letterSpacing: '0.2em', marginTop: 2 }}>
-            {stopIndex + 1} / {tour.stops.length} · DRAG TO LOOK
-          </div>
-        </div>
-        {navBtn('›', onNext, 'Next room')}
-
-        <div />
-        <HoldButton label="▼" aria="Move back" onHold={(on) => onMove(on ? -1 : 0)} />
-        <div />
       </div>
     </motion.div>
   );

@@ -490,6 +490,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const canvasWrapRef   = useRef(null);
   const tourApi         = useRef(null);
   const modelRef        = useRef(null);   // the flat model — walls block in-room movement
+  const menuHoverRef    = useRef(0);      // >0 while a controller ray is on the VR room menu
   const [stopIndex, setStopIndex] = useState(0);
 
   const flatType = selection.flat?.type || '';
@@ -610,9 +611,10 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     </Suspense>
                     {tour ? (
                       <>
-                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef}
+                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef} menuHoverRef={menuHoverRef}
                           onStopChange={setStopIndex} onBack={onBack} onEnquire={onEnquire} />
-                        <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting} />
+                        <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting}
+                          hoverRef={menuHoverRef} onGoTo={(i) => tourApi.current?.goTo(i)} />
                       </>
                     ) : (
                       <>
@@ -705,11 +707,11 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                                border: '1px solid rgba(255,255,255,0.08)' }}>
                       {tour ? (
                         <>
-                          <span className="text-white/40 text-[10px] tracking-wider">Trigger / A → Next</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">A → Next</span>
                           <span className="text-white/20 text-[10px]">·</span>
                           <span className="text-white/40 text-[10px] tracking-wider">X → Previous</span>
                           <span className="text-white/20 text-[10px]">·</span>
-                          <span className="text-white/40 text-[10px] tracking-wider">Stick ↕ → Move</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">Point + trigger → Pick room</span>
                           <span className="text-white/20 text-[10px]">·</span>
                           <span className="text-white/40 text-[10px] tracking-wider">B → Exit</span>
                         </>
