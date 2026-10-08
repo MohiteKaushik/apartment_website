@@ -1,3 +1,17 @@
 [build]
   command = ""
   publish = "build"
+
+# The WebAR viewer (public/ar/) is kept in the repo for a future project but is
+# not part of the live site. Remove these two rules to switch it back on.
+[[redirects]]
+  from = "/ar"
+  to = "/404.html"
+  status = 404
+  force = true
+
+[[redirects]]
+  from = "/ar/*"
+  to = "/404.html"
+  status = 404
+  force = true
