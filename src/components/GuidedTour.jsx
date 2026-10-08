@@ -6,42 +6,43 @@ import * as THREE from 'three';
 
 /* ─────────────────────────────────────────────────────────
    Guided tour: Next / Previous / jump-to-room with a smooth
-   glide, fixed eye height, no free walking.
+   glide at a fixed eye height, plus a little forward / back
+   movement inside each room. No free walking, no flying.
 
-   Desktop / mobile:  drag to look, ← → keys or on-screen buttons
-   VR (Quest):        trigger or A → next, X → previous,
-                      stick left/right → 45° snap turn,
-                      B → exit VR + back, Y → exit VR + enquire.
-                      Head height comes from the headset, so the
-                      viewpoint can no longer drift up or through
-                      the floor.
+   Desktop / mobile:  ‹ › buttons, room chips, ← → keys = change room
+                      ▲ ▼ buttons (hold) or ↑ ↓ / W S keys = move
+                      drag = look around
+   VR (Quest):        trigger or A → next room, X → previous room
+                      either stick ↕ → move forward / back
+                      either stick ↔ → 45° snap turn
+                      B → exit VR + back, Y → exit VR + enquire
+
+   Between rooms the camera follows pre-computed routes through the
+   doorways (src/data/tourRoutes.json, from `npm run tours:routes`).
+   Walls and furniture stop the forward / back movement (ray test
+   against the model, sped up by drei's <Bvh>), and the visitor
+   can't drift more than `tour.reach` metres from the room's spot.
 
    The controller exposes an imperative API through `apiRef`
-   ({ goTo, next, prev }) so that on-screen buttons, keyboard, VR
-   buttons — and later a remote "guide" — all drive the same code.
+   ({ goTo, next, prev, setMove }) so on-screen buttons, keys,
+   VR buttons — and later a remote "guide" — share one code path.
 ───────────────────────────────────────────────────────── */
 
-/* ── path helpers ──────────────────────────────────────── */
-function buildPath(from, to, tour) {
-  const direct = Math.hypot(to.x - from.x, to.z - from.z);
-  if (direct < tour.directBelow) return [from, to];
+/* ── routing between stops ─────────────────────────────── */
+const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 
-  const cz = tour.corridorZ;
-  const nearCorridor = (p) => Math.abs(p.z - cz) < 0.6;
-  const pts = [from];
-  if (!nearCorridor(from)) pts.push({ x: from.x, z: cz });
-  pts.push({ x: to.x, z: cz });
-  pts.push(to);
-
+/* Waypoints come from src/data/tourRoutes.json (npm run tours:routes),
+   which routes through doorways. Without an entry: glide straight. */
+function buildPath(from, fromStop, toStop, tour) {
+  const mid = tour.routes?.[`${fromStop.id}>${toStop.id}`] || [];
+  const pts = [from, ...mid.map(([x, z]) => ({ x, z })), { x: toStop.x, z: toStop.z }];
   // drop consecutive duplicates
-  return pts.filter((p, i) => i === 0 ||
-    Math.hypot(p.x - pts[i - 1].x, p.z - pts[i - 1].z) > 0.05);
+  return pts.filter((p, i) => i === 0 || dist(p, pts[i - 1]) > 0.05);
 }
 
 function makeRoute(pts) {
   const cum = [0];
-  for (let i = 1; i < pts.length; i++)
-    cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].z - pts[i - 1].z));
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i], pts[i - 1]));
   const length = cum[cum.length - 1];
   const at = (d) => {
     if (length === 0) return { x: pts[0].x, z: pts[0].z };
@@ -60,12 +61,15 @@ function makeRoute(pts) {
 const smoothstep = (t) => t * t * (3 - 2 * t);
 const wrapAngle  = (a) => Math.atan2(Math.sin(a), Math.cos(a));
 const lerpAngle  = (a, b, t) => a + wrapAngle(b - a) * t;
-const GLIDE_SPEED = 3.0;   // m/s
+const GLIDE_SPEED = 3.0;   // m/s between rooms
 const GLIDE_MIN   = 0.8;   // s
-const GLIDE_MAX   = 4.5;   // s
+const GLIDE_MAX   = 5.0;   // s
+const MOVE_SPEED  = 1.2;   // m/s inside a room
+const WALL_GAP    = 0.35;  // stop this far from walls / furniture
+const RAY_HEIGHTS = [0.35, 1.0];   // knee and waist height above the floor
 
 /* ── controller (lives inside <Canvas>) ────────────────── */
-export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, onEnquire }) {
+export function TourController({ tour, apiRef, xrStore, modelRef, onStopChange, onBack, onEnquire }) {
   const { camera, gl } = useThree();
   const originRef = useRef(null);
 
@@ -74,8 +78,10 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
   const pitch     = useRef(0);
   const pos       = useRef({ x: tour.stops[0].x, z: tour.stops[0].z });
   const anim      = useRef(null);           // { route, t0, dur, yaw0, yaw1 }
+  const moveInput = useRef(0);              // -1 back, 0, +1 forward (buttons / keys)
   const btnPrev   = useRef({});
   const stickPrev = useRef({});
+  const ray       = useMemo(() => { const r = new THREE.Raycaster(); r.firstHitOnly = true; return r; }, []);
   const onBackRef    = useRef(onBack);
   const onEnquireRef = useRef(onEnquire);
   const onStopRef    = useRef(onStopChange);
@@ -113,12 +119,32 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
     o.rotation.y += angle;
   };
 
+  /* can we step `step` metres from p along unit vector (dx, dz)? */
+  const canStep = (p, dx, dz, step) => {
+    const stop = tour.stops[stopIdx.current];
+    const next = { x: p.x + dx * step, z: p.z + dz * step };
+    // leash: allow moving back towards the room's spot, never further than `reach` from it
+    if (dist(next, stop) > (tour.reach || 3) && dist(next, stop) > dist(p, stop)) return false;
+
+    const model = modelRef?.current;
+    if (!model) return true;
+    const sgn = Math.sign(step);
+    const dir = new THREE.Vector3(dx * sgn, 0, dz * sgn);
+    ray.far = Math.abs(step) + WALL_GAP;
+    for (const h of RAY_HEIGHTS) {
+      ray.set(new THREE.Vector3(p.x, (tour.floorY || 0) + h, p.z), dir);
+      if (ray.intersectObject(model, true).length) return false;
+    }
+    return true;
+  };
+
   const goTo = (i) => {
     const n = tour.stops.length;
     i = ((i % n) + n) % n;
+    const fromStop = tour.stops[stopIdx.current];
     const stop  = tour.stops[i];
     const from  = headXZ();
-    const route = makeRoute(buildPath(from, stop, tour));
+    const route = makeRoute(buildPath(from, fromStop, stop, tour));
     const dur   = Math.max(GLIDE_MIN, Math.min(GLIDE_MAX, route.length / GLIDE_SPEED));
     const yaw0  = headYaw();
 
@@ -137,6 +163,7 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
       goTo,
       next: () => goTo(stopIdx.current + 1),
       prev: () => goTo(stopIdx.current - 1),
+      setMove: (v) => { moveInput.current = v; },
       index: () => stopIdx.current,
     };
     return () => { if (apiRef) apiRef.current = null; };
@@ -180,14 +207,26 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
     };
   }, [gl]);
 
-  /* keyboard: ← → (and PageUp/Down) step through the tour */
+  /* keyboard: ← → change room, ↑ ↓ / W S move */
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.code === 'ArrowRight' || e.code === 'PageDown' || e.code === 'Space') { e.preventDefault(); apiRef?.current?.next(); }
-      if (e.code === 'ArrowLeft'  || e.code === 'PageUp')                          { e.preventDefault(); apiRef?.current?.prev(); }
+    const onDown = (e) => {
+      if (e.code === 'ArrowRight' || e.code === 'PageDown') { e.preventDefault(); apiRef?.current?.next(); }
+      if (e.code === 'ArrowLeft'  || e.code === 'PageUp')   { e.preventDefault(); apiRef?.current?.prev(); }
+      if (e.code === 'ArrowUp'    || e.code === 'KeyW')     { e.preventDefault(); moveInput.current =  1; }
+      if (e.code === 'ArrowDown'  || e.code === 'KeyS')     { e.preventDefault(); moveInput.current = -1; }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onUp = (e) => {
+      if (['ArrowUp', 'KeyW', 'ArrowDown', 'KeyS'].includes(e.code)) moveInput.current = 0;
+    };
+    const onBlur = () => { moveInput.current = 0; };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    window.addEventListener('blur', onBlur);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+      window.removeEventListener('blur', onBlur);
+    };
   }, [apiRef]);
 
   /* place the non-VR camera on the first stop */
@@ -195,8 +234,9 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
     camera.position.set(tour.stops[0].x, tour.eyeHeight, tour.stops[0].z);
   }, [camera, tour]);
 
-  useFrame(() => {
+  useFrame((_, delta) => {
     const presenting = gl.xr.isPresenting;
+    const dt = Math.min(delta, 0.1);
 
     /* ── glide animation ── */
     if (anim.current) {
@@ -206,7 +246,7 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
       const p = a.route.at(a.route.length * s);
 
       if (presenting && originRef.current) {
-        // Keep the *headset* on the path: origin = path point − (head − origin)
+        // Keep the *headset* on the path: origin += path point − head
         const o = originRef.current;
         const head = new THREE.Vector3();
         gl.xr.getCamera().getWorldPosition(head);
@@ -222,6 +262,7 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
     }
 
     /* ── VR input ── */
+    let vrMove = 0;
     if (presenting) {
       const session = xrStore.getState().session;
       if (session) {
@@ -230,13 +271,15 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
           if (!gp) continue;
           const hand = src.handedness;
 
-          // stick X → 45° snap turn (fires once per push)
           if (gp.axes && gp.axes.length >= 2) {
             const sx = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0];
-            const dir = sx > 0.6 ? 1 : sx < -0.6 ? -1 : 0;
-            if (dir !== 0 && stickPrev.current[hand] !== dir)
-              rotateOriginAroundHead(-dir * Math.PI / 4);
+            const sy = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
+            // stick ↔ → 45° snap turn (fires once per push), only when not pushing forward/back
+            const dir = Math.abs(sx) > 0.6 && Math.abs(sx) > Math.abs(sy) ? Math.sign(sx) : 0;
+            if (dir !== 0 && stickPrev.current[hand] !== dir) rotateOriginAroundHead(-dir * Math.PI / 4);
             stickPrev.current[hand] = dir;
+            // stick ↕ → forward / back (pushing up gives a negative axis value)
+            if (Math.abs(sy) > 0.25 && Math.abs(sy) > Math.abs(sx) && Math.abs(sy) > Math.abs(vrMove)) vrMove = -sy;
           }
 
           if (gp.buttons) {
@@ -255,8 +298,26 @@ export function TourController({ tour, apiRef, xrStore, onStopChange, onBack, on
           }
         }
       }
-      return;
     }
+
+    /* ── forward / back inside the room ── */
+    const input = presenting ? vrMove : moveInput.current;
+    if (input !== 0 && !anim.current) {
+      const y = headYaw();
+      const dx = -Math.sin(y), dz = -Math.cos(y);
+      const step = input * MOVE_SPEED * dt;
+      const here = headXZ();
+      if (canStep(here, dx, dz, step)) {
+        if (presenting && originRef.current) {
+          originRef.current.position.x += dx * step;
+          originRef.current.position.z += dz * step;
+        } else {
+          pos.current = { x: here.x + dx * step, z: here.z + dz * step };
+        }
+      }
+    }
+
+    if (presenting) return;
 
     /* ── non-VR camera ── */
     camera.position.set(pos.current.x, tour.eyeHeight, pos.current.z);
@@ -278,7 +339,7 @@ function drawHud(ctx, w, h, title, sub, hint) {
   ctx.textAlign = 'center';
   ctx.fillStyle = '#c49a3c'; ctx.font = '600 28px sans-serif'; ctx.fillText(sub, w / 2, 56);
   ctx.fillStyle = '#ffffff'; ctx.font = '500 64px sans-serif'; ctx.fillText(title, w / 2, 136);
-  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '400 28px sans-serif'; ctx.fillText(hint, w / 2, 198);
+  ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.font = '400 26px sans-serif'; ctx.fillText(hint, w / 2, 198);
 }
 
 export function TourHUD({ tour, stopIndex, visible }) {
@@ -294,7 +355,7 @@ export function TourHUD({ tour, stopIndex, visible }) {
   useEffect(() => {
     const stop = tour.stops[stopIndex];
     drawHud(ctx, W, H, stop.label, `${stopIndex + 1} / ${tour.stops.length}`,
-      'Trigger or A → next room   ·   X → previous   ·   B → exit');
+      'Trigger / A  next room  ·  X  previous  ·  Stick ↕  move  ·  B  exit');
     texture.needsUpdate = true;
   }, [tour, stopIndex, ctx, texture]);
 
@@ -319,7 +380,31 @@ export function TourHUD({ tour, stopIndex, visible }) {
 }
 
 /* ── on-screen controls (outside the canvas) ───────────── */
-export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo }) {
+const roundBtn = (size, primary) => ({
+  width: size, height: size, borderRadius: size / 2, cursor: 'pointer',
+  background: primary ? '#c49a3c' : 'rgba(0,0,0,0.6)',
+  color: primary ? '#000' : '#c49a3c',
+  border: primary ? 'none' : '1px solid rgba(196,154,60,0.55)',
+  fontSize: primary ? 26 : 16, lineHeight: 1,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  boxShadow: '0 6px 20px rgba(0,0,0,0.4)', backdropFilter: 'blur(10px)',
+  userSelect: 'none', WebkitUserSelect: 'none', touchAction: 'none',
+});
+
+/* press-and-hold button for moving forward / back */
+function HoldButton({ label, aria, onHold }) {
+  const down = (e) => { e.preventDefault(); onHold(true); };
+  const up   = () => onHold(false);
+  return (
+    <motion.button aria-label={aria} whileTap={{ scale: 0.9 }} style={roundBtn(40, false)}
+      onPointerDown={down} onPointerUp={up} onPointerLeave={up} onPointerCancel={up}
+      onContextMenu={(e) => e.preventDefault()}>
+      {label}
+    </motion.button>
+  );
+}
+
+export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo, onMove }) {
   const chipsRef = useRef(null);
   useEffect(() => {
     const el = chipsRef.current?.children?.[stopIndex];
@@ -328,26 +413,21 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo }) {
 
   const stop = tour.stops[stopIndex];
   const navBtn = (label, onClick, aria) => (
-    <motion.button onClick={onClick} whileTap={{ scale: 0.9 }} aria-label={aria}
-      style={{
-        width: 52, height: 52, borderRadius: 26, cursor: 'pointer',
-        background: '#c49a3c', color: '#000', border: 'none',
-        fontSize: 26, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
-      }}>
+    <motion.button onClick={onClick} whileTap={{ scale: 0.9 }} aria-label={aria} style={roundBtn(52, true)}>
       {label}
     </motion.button>
   );
 
   return (
-    <motion.div className="absolute z-20 flex flex-col items-center"
-      style={{ bottom: 24, left: 0, right: 0, pointerEvents: 'none' }}
+    // On phones the bar sits above the Enter VR button; on wider screens beside it
+    <motion.div className="absolute z-20 flex flex-col items-center bottom-[76px] md:bottom-4"
+      style={{ left: 0, right: 0, pointerEvents: 'none' }}
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
 
       {/* room chips */}
       <div ref={chipsRef}
         style={{ display: 'flex', gap: 6, overflowX: 'auto', maxWidth: '92vw', padding: '4px 8px',
-                 marginBottom: 10, pointerEvents: 'auto', scrollbarWidth: 'none' }}>
+                 marginBottom: 8, pointerEvents: 'auto', scrollbarWidth: 'none' }}>
         {tour.stops.map((s, i) => {
           const active = i === stopIndex;
           return (
@@ -366,8 +446,16 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo }) {
         })}
       </div>
 
-      {/* prev · name · next */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, pointerEvents: 'auto' }}>
+      {/*        ▲
+             ‹  name  ›
+                   ▼          (▲ ▼ = move inside the room, ‹ › = change room) */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'auto auto auto', gridTemplateRows: 'auto auto auto',
+                    alignItems: 'center', justifyItems: 'center', columnGap: 12, rowGap: 6,
+                    pointerEvents: 'auto' }}>
+        <div />
+        <HoldButton label="▲" aria="Move forward" onHold={(on) => onMove(on ? 1 : 0)} />
+        <div />
+
         {navBtn('‹', onPrev, 'Previous room')}
         <div style={{ minWidth: 170, textAlign: 'center', padding: '10px 18px', borderRadius: 14,
                       background: 'rgba(0,0,0,0.6)', border: '1px solid rgba(255,255,255,0.12)',
@@ -378,6 +466,10 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo }) {
           </div>
         </div>
         {navBtn('›', onNext, 'Next room')}
+
+        <div />
+        <HoldButton label="▼" aria="Move back" onHold={(on) => onMove(on ? -1 : 0)} />
+        <div />
       </div>
     </motion.div>
   );

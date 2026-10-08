@@ -1,7 +1,7 @@
-import React, { Suspense, useState, useEffect, useRef } from 'react';
+import React, { Suspense, useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
-import { useGLTF, Environment } from '@react-three/drei';
+import { useGLTF, Environment, Bvh } from '@react-three/drei';
 import { XR, XROrigin, createXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
@@ -9,6 +9,7 @@ import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { TourController, TourHUD, TourBar } from '../components/GuidedTour';
 import TOURS from '../data/walkthroughTours';
+import TOUR_ROUTES from '../data/tourRoutes.json';
 
 /* Module-level XR store — one instance for the whole session */
 const xrStore = createXRStore({ emulate: false });
@@ -488,6 +489,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const scrollRef       = useRef(0);
   const canvasWrapRef   = useRef(null);
   const tourApi         = useRef(null);
+  const modelRef        = useRef(null);   // the flat model — walls block in-room movement
   const [stopIndex, setStopIndex] = useState(0);
 
   const flatType = selection.flat?.type || '';
@@ -501,7 +503,9 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const unitKey = is3BHK ? '3bhk' : is2BHK ? '2bhk' : '4bhk';
   // Guided tour (Next / Previous / room buttons) when stops are defined for
   // this unit; otherwise the original free-walk controls.
-  const tour    = TOURS[unitKey] || null;
+  const tour    = useMemo(
+    () => (TOURS[unitKey] ? { ...TOURS[unitKey], routes: TOUR_ROUTES[unitKey] } : null),
+    [unitKey]);
   const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png'
                      : is2BHK ? '/assets/images/2bhk_flat_plan.png'
                      : '/assets/images/floorplan.png';
@@ -598,12 +602,15 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     <pointLight position={[-4, 2, -3]} intensity={0.4} color="#c49a3c" />
                     <pointLight position={[4, 2, 3]}  intensity={0.3} color="#aabbff" />
                     <Suspense fallback={<FlatFallback />}>
-                      <FlatModel modelPath={modelPath} />
+                      {/* Bvh: fast ray tests so walls / furniture can block forward-back movement */}
+                      <Bvh firstHitOnly ref={modelRef}>
+                        <FlatModel modelPath={modelPath} />
+                      </Bvh>
                       <Environment preset="apartment" />
                     </Suspense>
                     {tour ? (
                       <>
-                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore}
+                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef}
                           onStopChange={setStopIndex} onBack={onBack} onEnquire={onEnquire} />
                         <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting} />
                       </>
@@ -622,7 +629,8 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                   <TourBar tour={tour} stopIndex={stopIndex}
                     onPrev={() => tourApi.current?.prev()}
                     onNext={() => tourApi.current?.next()}
-                    onGoTo={(i) => tourApi.current?.goTo(i)} />
+                    onGoTo={(i) => tourApi.current?.goTo(i)}
+                    onMove={(v) => tourApi.current?.setMove(v)} />
                 )}
 
                 {/* D-pad — free-walk units only, hidden when VR is presenting */}
@@ -700,6 +708,8 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                           <span className="text-white/40 text-[10px] tracking-wider">Trigger / A → Next</span>
                           <span className="text-white/20 text-[10px]">·</span>
                           <span className="text-white/40 text-[10px] tracking-wider">X → Previous</span>
+                          <span className="text-white/20 text-[10px]">·</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">Stick ↕ → Move</span>
                           <span className="text-white/20 text-[10px]">·</span>
                           <span className="text-white/40 text-[10px] tracking-wider">B → Exit</span>
                         </>

@@ -25,7 +25,8 @@
     "ar:targets": "node scripts/make-ar-targets.mjs",
     "models:ar": "node scripts/optimize-models.mjs",
     "models:amenities": "node scripts/optimize-amenities.mjs",
-    "ar:serve": "node scripts/dev-server.mjs"
+    "ar:serve": "node scripts/dev-server.mjs",
+    "tours:routes": "node scripts/build-tour-routes.mjs"
   },
   "eslintConfig": {
     "extends": [
