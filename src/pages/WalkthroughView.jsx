@@ -7,6 +7,8 @@ import * as THREE from 'three';
 import NavBar from '../components/NavBar';
 import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { TourController, TourHUD, TourBar } from '../components/GuidedTour';
+import TOURS from '../data/walkthroughTours';
 
 /* Module-level XR store — one instance for the whole session */
 const xrStore = createXRStore({ emulate: false });
@@ -485,6 +487,24 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const externalKeysRef = useRef({});
   const scrollRef       = useRef(0);
   const canvasWrapRef   = useRef(null);
+  const tourApi         = useRef(null);
+  const [stopIndex, setStopIndex] = useState(0);
+
+  const flatType = selection.flat?.type || '';
+  const is3BHK   = flatType.includes('3 BHK');
+  const is2BHK   = flatType.includes('2 BHK');
+  const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb'
+                  : is2BHK ? '/assets/models/flat_2bhk.glb'
+                  : '/assets/models/flat.glb';
+  // Unit key — also the key used by src/data/walkthroughTours.js and by
+  // public/ar/units.js (the WebAR pages, currently not linked from the site).
+  const unitKey = is3BHK ? '3bhk' : is2BHK ? '2bhk' : '4bhk';
+  // Guided tour (Next / Previous / room buttons) when stops are defined for
+  // this unit; otherwise the original free-walk controls.
+  const tour    = TOURS[unitKey] || null;
+  const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png'
+                     : is2BHK ? '/assets/images/2bhk_flat_plan.png'
+                     : '/assets/images/floorplan.png';
 
   const handleHeightChange = (v) => {
     eyeHeightRef.current = v;
@@ -503,13 +523,13 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     const el = canvasWrapRef.current;
     if (!el) return;
     const onWheel = (e) => {
-      if (mode !== '3d') return;
+      if (mode !== '3d' || tour) return;
       e.preventDefault();
       scrollRef.current += e.deltaY;
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [mode]);
+  }, [mode, tour]);
 
   const handleEnterVR = async () => {
     try {
@@ -523,17 +543,6 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     xrStore.getState().session?.end();
   };
 
-  const flatType = selection.flat?.type || '';
-  const is3BHK   = flatType.includes('3 BHK');
-  const is2BHK   = flatType.includes('2 BHK');
-  const modelPath = is3BHK ? '/assets/models/flat_3bhk.glb'
-                  : is2BHK ? '/assets/models/flat_2bhk.glb'
-                  : '/assets/models/flat.glb';
-  // Unit key; also used by public/ar/units.js (WebAR pages, not linked from the site).
-  const arUnit  = is3BHK ? '3bhk' : is2BHK ? '2bhk' : '4bhk';
-  const floorPlanSrc = is3BHK ? '/assets/images/3bhk_flat_plan.png'
-                     : is2BHK ? '/assets/images/2bhk_flat_plan.png'
-                     : '/assets/images/floorplan.png';
 
   return (
     <motion.div
@@ -592,19 +601,37 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                       <FlatModel modelPath={modelPath} />
                       <Environment preset="apartment" />
                     </Suspense>
-                    <FirstPersonController speed={5} eyeHeightRef={eyeHeightRef}
-                      externalKeysRef={externalKeysRef} scrollRef={scrollRef} />
-                    <VRLocomotion speed={2.5} onBack={onBack} onEnquire={onEnquire} />
+                    {tour ? (
+                      <>
+                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore}
+                          onStopChange={setStopIndex} onBack={onBack} onEnquire={onEnquire} />
+                        <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting} />
+                      </>
+                    ) : (
+                      <>
+                        <FirstPersonController speed={5} eyeHeightRef={eyeHeightRef}
+                          externalKeysRef={externalKeysRef} scrollRef={scrollRef} />
+                        <VRLocomotion speed={2.5} onBack={onBack} onEnquire={onEnquire} />
+                      </>
+                    )}
                   </XR>
                 </Canvas>
 
-                {/* D-pad — hidden when VR is presenting (controller used instead) */}
-                {!isVRPresenting && (
+                {/* Guided tour controls — hidden when VR is presenting (controller + HUD used instead) */}
+                {tour && !isVRPresenting && (
+                  <TourBar tour={tour} stopIndex={stopIndex}
+                    onPrev={() => tourApi.current?.prev()}
+                    onNext={() => tourApi.current?.next()}
+                    onGoTo={(i) => tourApi.current?.goTo(i)} />
+                )}
+
+                {/* D-pad — free-walk units only, hidden when VR is presenting */}
+                {!tour && !isVRPresenting && (
                   <DirectionPad externalKeysRef={externalKeysRef} />
                 )}
 
-                {/* Mobile height presets — hidden in VR */}
-                {!isVRPresenting && (
+                {/* Mobile height presets — free-walk units only, hidden in VR */}
+                {!tour && !isVRPresenting && (
                   <motion.div
                     className="absolute md:hidden z-20 flex gap-2"
                     style={{ bottom: 110, left: '50%', transform: 'translateX(-50%)' }}
@@ -624,8 +651,8 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                   </motion.div>
                 )}
 
-                {/* Desktop height slider */}
-                <HeightSlider value={eyeHeight} onChange={handleHeightChange} />
+                {/* Desktop height slider — free-walk units only */}
+                {!tour && <HeightSlider value={eyeHeight} onChange={handleHeightChange} />}
 
                 {/* ── VR Entry Button — always visible; graceful alert if no VR hardware ── */}
                 {(
@@ -668,9 +695,21 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     <div className="flex gap-3 px-3 py-1.5 rounded-full"
                       style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(10px)',
                                border: '1px solid rgba(255,255,255,0.08)' }}>
-                      <span className="text-white/40 text-[10px] tracking-wider">B → Back</span>
-                      <span className="text-white/20 text-[10px]">·</span>
-                      <span className="text-white/40 text-[10px] tracking-wider">X → Enquire</span>
+                      {tour ? (
+                        <>
+                          <span className="text-white/40 text-[10px] tracking-wider">Trigger / A → Next</span>
+                          <span className="text-white/20 text-[10px]">·</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">X → Previous</span>
+                          <span className="text-white/20 text-[10px]">·</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">B → Exit</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-white/40 text-[10px] tracking-wider">B → Back</span>
+                          <span className="text-white/20 text-[10px]">·</span>
+                          <span className="text-white/40 text-[10px] tracking-wider">X → Enquire</span>
+                        </>
+                      )}
                     </div>
                   </motion.div>
                 )}
