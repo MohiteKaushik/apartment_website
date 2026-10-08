@@ -52,6 +52,11 @@ class ModelErrorBoundary extends Component {
   3. Build two new Three.js Meshes with independent materials.
   4. Hide the original, add the two halves → independent glow control.
 */
+/* Start fetching the model and the 360° background as soon as this module
+   loads — i.e. while the intro video is still playing. */
+useGLTF.preload('/assets/models/tower.glb');
+useLoader.preload(THREE.TextureLoader, '/assets/images/bg_walkthrough.png');
+
 function TowerGLB({ hoveredId }) {
   const { scene }  = useGLTF('/assets/models/tower.glb');
   const meshARef   = useRef(null);
@@ -302,6 +307,17 @@ function CameraSetup() {
   return null;
 }
 
+/* While the page is hidden under the intro: ask for a frame every so often
+   so the model and textures get uploaded to the GPU before the reveal. */
+function WarmUp() {
+  const invalidate = useThree((s) => s.invalidate);
+  useEffect(() => {
+    const t = setInterval(invalidate, 500);
+    return () => clearInterval(t);
+  }, [invalidate]);
+  return null;
+}
+
 /* ── Smoothly lerp orbit pivot height ── */
 function TargetRig({ controlsRef, targetY }) {
   useFrame(() => {
@@ -336,7 +352,7 @@ function TowerScene({ controlsRef, targetY, hoveredId }) {
 }
 
 /* ── Main page ── */
-export default function TowerSelection({ onSelectTower, onViewAmenities, onCustomize }) {
+export default function TowerSelection({ onSelectTower, onViewAmenities, onCustomize, behindIntro = false }) {
   const [hoveredId, setHoveredId] = useState(null);
   const [loading3D, setLoading3D] = useState(true);
   const [targetY, setTargetY]     = useState(7);  // orbit pivot at ~mid-tower
@@ -401,8 +417,12 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
               shadows={false}
               dpr={Math.min(window.devicePixelRatio, 1.5)}
               performance={{ min: 0.5 }}
+              // Under the intro video: render on demand only (assets still
+              // load and upload), so the video plays smoothly on phones.
+              frameloop={behindIntro ? 'demand' : 'always'}
               onCreated={() => setTimeout(() => setLoading3D(false), 800)}
             >
+              {behindIntro && <WarmUp />}
               <TowerScene
                 controlsRef={controlsRef}
                 targetY={targetY}
@@ -423,18 +443,6 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
                 maxPolarAngle={Math.PI / 2.2}
               />
             </Canvas>
-
-            {/* ── Seamless reveal overlay ──
-                Starts black (matching IntroVideo's fade-to-black),
-                then fades out to reveal the 3D scene behind it.
-                Delay 200ms so the 3D has a frame to render first. */}
-            <motion.div
-              className="absolute inset-0 bg-black pointer-events-none"
-              style={{ zIndex: 15 }}
-              initial={{ opacity: 1 }}
-              animate={{ opacity: 0 }}
-              transition={{ duration: 1.2, delay: 0.2, ease: 'easeInOut' }}
-            />
 
             {/* Camera height slider */}
             <motion.div

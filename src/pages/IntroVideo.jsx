@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 
 export default function IntroVideo({ onComplete }) {
   const videoRef   = useRef(null);
@@ -11,25 +11,19 @@ export default function IntroVideo({ onComplete }) {
     videoRef.current?.play();
   };
 
-  /* When the video ends, fade to black first, THEN switch pages.
-     This lets the 3D model load behind the black so the reveal
-     feels like the still frame "comes to life". */
-  const handleEnded = () => {
-    setFadingOut(true);
-    setTimeout(onComplete, 900); // match animation duration below
-  };
-
-  const handleSkip = () => {
-    setFadingOut(true);
-    setTimeout(onComplete, 500);
-  };
+  /* The tower page is already rendered underneath this layer (see App.js),
+     so when the video ends we simply hand over: this layer fades out over
+     the live 3D scene, with the last frame of the video held on screen. */
+  const handleEnded = () => { setFadingOut(true); onComplete(); };
+  const handleSkip  = () => { setFadingOut(true); onComplete(); };
 
   return (
     <motion.div
       className="absolute inset-0 flex items-center justify-center bg-black"
+      style={{ zIndex: 50 }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      exit={{ opacity: 0, transition: { duration: 1.1, ease: 'easeInOut' } }}
       transition={{ duration: 0.2 }}
     >
       {/* Video — stays visible (paused on last frame) during fade */}
@@ -39,23 +33,11 @@ export default function IntroVideo({ onComplete }) {
         src="/assets/videos/intro.mp4"
         onEnded={handleEnded}
         playsInline
+        preload="auto"
       />
 
       {/* Subtle dark tint while playing */}
       <div className="absolute inset-0 bg-black/25" />
-
-      {/* ── Fade-to-black overlay ──
-          Animates in when video ends so 3D can load behind it */}
-      <AnimatePresence>
-        {fadingOut && (
-          <motion.div
-            className="absolute inset-0 bg-black z-30"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.25, ease: 'easeInOut' }}
-          />
-        )}
-      </AnimatePresence>
 
       {/* Brand / start screen */}
       {!started && (

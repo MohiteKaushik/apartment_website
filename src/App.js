@@ -39,12 +39,18 @@ export default function App() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-[#0a0a0a]">
-      <AnimatePresence mode="wait">
+      {/* The intro sits on its own layer above the tower page, which is
+          already mounted underneath while the video plays. So the 3D tower,
+          its textures and the page layout are ready, and the video's last
+          frame cross-fades straight into the live scene — no black gap. */}
+      <AnimatePresence>
         {page === PAGES.INTRO && (
           <IntroVideo key="intro" onComplete={() => navigate(PAGES.TOWER)} />
         )}
-        {page === PAGES.TOWER && (
-          <TowerSelection key="tower" selection={selection}
+      </AnimatePresence>
+      <AnimatePresence mode="wait">
+        {(page === PAGES.TOWER || page === PAGES.INTRO) && (
+          <TowerSelection key="tower" selection={selection} behindIntro={page === PAGES.INTRO}
             onSelectTower={tower => navigate(PAGES.FLOOR, { tower })}
             onViewAmenities={() => navigate(PAGES.AMENITIES)}
             onCustomize={() => navigate(PAGES.CUSTOMIZER)} />
