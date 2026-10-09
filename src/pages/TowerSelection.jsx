@@ -44,7 +44,7 @@ class ModelErrorBoundary extends Component {
 useGLTF.preload('/assets/models/tower.glb');
 if (typeof Image !== 'undefined') { const i = new Image(); i.src = HERO_STILL; }
 
-function TowerGLB({ hoveredId }) {
+function TowerGLB({ hoveredId, growRef }) {
   const { scene }  = useGLTF('/assets/models/tower.glb');
   const meshARef   = useRef(null);
   const meshBRef   = useRef(null);
@@ -248,7 +248,13 @@ function TowerGLB({ hoveredId }) {
     });
   });
 
-  return <primitive object={scene} scale={MODEL_SCALE} />;
+  // Turned 180° so the pool deck faces the viewer like in the film. The
+  // group's scale is animated by HeroRig (the model "grows out" of the still).
+  return (
+    <group ref={growRef} rotation={[0, Math.PI, 0]}>
+      <primitive object={scene} scale={MODEL_SCALE} />
+    </group>
+  );
 }
 
 /* ── Geometric placeholder ── */
@@ -286,7 +292,13 @@ function PlaceholderTower() {
    Vertical field of view follows the viewport the same way `object-fit:
    cover` crops the backdrop, so the composite holds on any screen shape. */
 const HERO = { az: -42, el: 33, dist: 36, look: [0, 7.4, 0], fovAt16x9: 45 };
-const PUSH_T0 = 0.5, PUSH_DUR = 3.2;   // seconds after reveal
+/* Opening timeline, seconds after the reveal starts:
+     0 … HOLD      the film's last frame holds (the cross-fade is inside this)
+     HOLD …        the model grows out of the still (GROW_DUR), while the
+                   picture behind it softens and a vignette settles around it
+     HOLD+0.3 …    the camera's slow push-in / pan (PUSH_DUR)              */
+const HOLD = 1.0, GROW_DUR = 1.5, PUSH_T0 = HOLD + 0.3, PUSH_DUR = 3.0;
+const GROW_FROM = 1 / 1.22;    // model starts at the film's size, ends at MODEL_SCALE
 /* Zoom of the opening move, by screen shape. Landscape 16:9 pushes in a
    touch; very wide screens and phones pull out so the whole building fits
    (phones also leave room for the title above it). */
@@ -299,12 +311,14 @@ const panFor = (aspect) => (aspect < 0.9 ? 0.17 : 0);
 const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
 const deg = (d) => (d * Math.PI) / 180;
 
-function HeroRig({ backdropRef, cinematic, onSettled }) {
+function HeroRig({ backdropRef, fxRef, growRef, cinematic, onSettled }) {
   const { camera, gl, size } = useThree();
   const az   = useRef(deg(HERO.az)), el = useRef(deg(HERO.el));   // current
   const azT  = useRef(deg(HERO.az)), elT = useRef(deg(HERO.el));  // targets
   const zoom = useRef(1);
   const pan  = useRef(0);      // fraction of viewport height, +down
+  const grow = useRef(cinematic ? GROW_FROM : 1);
+  const fx   = useRef(cinematic ? 0 : 1);   // local blur + vignette strength
   const t0   = useRef(null);
   const lastInput = useRef(performance.now());
   const settled = useRef(!cinematic);
@@ -350,7 +364,11 @@ function HeroRig({ backdropRef, cinematic, onSettled }) {
     /* opening push-in */
     if (cinematic && !settled.current) {
       if (t0.current === null) t0.current = now;
-      const t = Math.min(1, Math.max(0, (now - t0.current) / 1000 - PUSH_T0) / PUSH_DUR);
+      const el_ = (now - t0.current) / 1000;
+      const g = easeOutCubic(Math.min(1, Math.max(0, el_ - HOLD) / GROW_DUR));
+      grow.current = GROW_FROM + (1 - GROW_FROM) * g;
+      fx.current   = g;
+      const t = Math.min(1, Math.max(0, el_ - PUSH_T0) / PUSH_DUR);
       const k = easeOutCubic(t);
       const aspect = size.width / size.height;
       const target = pushFor(aspect, THREE.MathUtils.radToDeg(baseFov()));
@@ -382,6 +400,11 @@ function HeroRig({ backdropRef, cinematic, onSettled }) {
     if (shift) camera.setViewOffset(size.width, size.height, 0, -shift, size.width, size.height);
     else if (camera.view) camera.clearViewOffset();
     camera.updateProjectionMatrix();
+    if (growRef?.current) growRef.current.scale.setScalar(grow.current);
+    if (fxRef?.current) {
+      fxRef.current.blur.style.opacity = fx.current.toFixed(3);
+      fxRef.current.vignette.style.opacity = fx.current.toFixed(3);
+    }
     if (backdropRef.current) {
       const z = zoom.current;
       backdropRef.current.style.transform = `translateY(${shift}px) scale(${z.toFixed(4)})`;
@@ -404,17 +427,20 @@ function WarmUp() {
   return null;
 }
 
-function TowerScene({ hoveredId, backdropRef, cinematic, onSettled }) {
+function TowerScene({ hoveredId, backdropRef, fxRef, cinematic, onSettled }) {
+  const growRef = useRef(null);
   return (
     <>
-      <HeroRig backdropRef={backdropRef} cinematic={cinematic} onSettled={onSettled} />
+      <HeroRig backdropRef={backdropRef} fxRef={fxRef} growRef={growRef} cinematic={cinematic} onSettled={onSettled} />
+      {/* a little atmospheric haze so the model doesn't read as razor-sharp against the photo */}
+      <fog attach="fog" args={['#d9e1e8', 40, 150]} />
       {/* Daylight to match the still: sun high on the left, soft fill from the right */}
-      <ambientLight intensity={1.9} color="#f4f6ff" />
-      <directionalLight position={[-14, 26, 10]} intensity={2.6} color="#fff1dc" />
-      <directionalLight position={[18, 10, -6]} intensity={0.7} color="#dfe8ff" />
+      <ambientLight intensity={2.2} color="#f6f7ff" />
+      <directionalLight position={[-14, 26, 10]} intensity={3.0} color="#fff3e0" />
+      <directionalLight position={[18, 10, -6]} intensity={0.9} color="#dfe8ff" />
       <ModelErrorBoundary fallback={<PlaceholderTower />}>
         <Suspense fallback={<PlaceholderTower />}>
-          <TowerGLB hoveredId={hoveredId} />
+          <TowerGLB hoveredId={hoveredId} growRef={growRef} />
           {/* soft ground contact so the model sits in the photo */}
           <ContactShadows position={[0, 0.02, 0]} scale={34} blur={2.6} opacity={0.5} far={14} frames={1} />
         </Suspense>
@@ -435,11 +461,15 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
   const [hoveredId, setHoveredId] = useState(null);
   const [ready, setReady]         = useState(false);
   const [hintGone, setHintGone]   = useState(false);
-  const backdropRef               = useRef(null);
+  const backdropRef               = useRef(null);   // sharp still + local blur (transformed together)
+  const blurRef                   = useRef(null);
+  const vignetteRef               = useRef(null);
+  const fxRef                     = useRef(null);
+  useEffect(() => { fxRef.current = { blur: blurRef.current, vignette: vignetteRef.current }; }, []);
   // Cinematic opening only when we arrive from the intro film.
   const cinematic = useRef(behindIntro).current;
   // Delays: staged after the cut when cinematic, brisk otherwise.
-  const D = cinematic ? { nav: 1.3, eyebrow: 1.7, title: 1.85, sub: 2.15, links: 2.4, card: 2.5, hint: 3.4 }
+  const D = cinematic ? { nav: 2.0, eyebrow: 2.4, title: 2.55, sub: 2.85, links: 3.1, card: 3.2, hint: 4.2 }
                       : { nav: 0.1, eyebrow: 0.2, title: 0.25, sub: 0.35, links: 0.45, card: 0.3, hint: 1.2 };
 
   useEffect(() => {
@@ -459,19 +489,35 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
       <img src={HERO_STILL} alt="" aria-hidden="true"
         className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
         style={{ filter: 'blur(22px) brightness(0.85)', transform: 'scale(1.12)' }} draggable={false} />
-      <img ref={backdropRef} src={HERO_STILL} alt="" aria-hidden="true"
-        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
-        style={{ transformOrigin: '50% 50%', willChange: 'transform' }} draggable={false} />
+      <div ref={backdropRef} className="absolute inset-0 pointer-events-none"
+        style={{ transformOrigin: '50% 50%', willChange: 'transform' }}>
+        <img src={HERO_STILL} alt="" aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover select-none" draggable={false} />
+        {/* The same still, softened, shown only around the building: the
+            filmed towers melt away behind the 3D model as it grows out. */}
+        <img ref={blurRef} src={HERO_STILL} alt="" aria-hidden="true"
+          className="absolute inset-0 w-full h-full object-cover select-none"
+          style={{ filter: 'blur(9px) saturate(0.9)', transform: 'scale(1.03)', opacity: 0,
+                   maskImage: 'radial-gradient(ellipse 30% 46% at 50% 52%, #000 40%, transparent 100%)',
+                   WebkitMaskImage: 'radial-gradient(ellipse 30% 46% at 50% 52%, #000 40%, transparent 100%)' }}
+          draggable={false} />
+      </div>
+      {/* Vignette: a soft pool of light on the building, darker towards the edges */}
+      <div ref={vignetteRef} className="absolute pointer-events-none" style={{ inset: '-25%', opacity: 0,
+        background: 'radial-gradient(ellipse 27% 34% at 50% 52%, rgba(0,0,0,0) 32%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0.38) 100%)' }} />
 
       {/* Live 3D towers, composited over the still */}
-      <Canvas className="absolute inset-0" style={{ position: 'absolute', inset: 0 }}
+      <Canvas className="absolute inset-0"
+        style={{ position: 'absolute', inset: 0,
+                 /* take the digital edge off the render so it sits in the photo */
+                 filter: 'blur(0.35px) saturate(0.96)' }}
         camera={{ fov: 45, near: 0.5, far: 400 }}
         gl={{ alpha: true, antialias: true }}
         dpr={Math.min(window.devicePixelRatio, 1.5)}
         frameloop={behindIntro ? 'demand' : 'always'}
         onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); setReady(true); }}>
         {behindIntro && <WarmUp />}
-        <TowerScene hoveredId={hoveredId} backdropRef={backdropRef} cinematic={cinematic}
+        <TowerScene hoveredId={hoveredId} backdropRef={backdropRef} fxRef={fxRef} cinematic={cinematic}
           onSettled={() => {}} />
       </Canvas>
 
@@ -481,7 +527,7 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
       <div className="absolute inset-x-0 top-0 h-[46%] pointer-events-none sm:hidden"
         style={{ background: 'linear-gradient(rgba(0,0,0,0.72) 30%, rgba(0,0,0,0))' }} />
       <div className="absolute inset-x-0 bottom-0 h-[55%] pointer-events-none"
-        style={{ background: 'linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.78))' }} />
+        style={{ background: 'linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.18) 45%, rgba(0,0,0,0.66))' }} />
       <div className="absolute inset-y-0 left-0 w-[48%] pointer-events-none hidden sm:block"
         style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.45), rgba(0,0,0,0))' }} />
 
@@ -578,8 +624,8 @@ export default function TowerSelection({ onSelectTower, onViewAmenities, onCusto
       {/* Hint */}
       <AnimatePresence>
         {!hintGone && (
-          <motion.div className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[150px] sm:bottom-6 pointer-events-none
-                                 flex items-center gap-2 px-3 py-1.5 rounded-full"
+          <motion.div className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[204px] sm:bottom-6 pointer-events-none
+                                 flex items-center gap-2 px-3 py-1.5 rounded-full whitespace-nowrap"
             style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)' }}
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
             transition={{ delay: D.hint, duration: 0.8 }}>
