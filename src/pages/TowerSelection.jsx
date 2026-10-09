@@ -1,32 +1,19 @@
 import React, { Suspense, useState, useRef, useEffect, Component } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Canvas, useFrame, useThree, useLoader } from '@react-three/fiber';
-import { OrbitControls, useGLTF } from '@react-three/drei';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
+import { useGLTF, ContactShadows } from '@react-three/drei';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
 // import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 
-/* ── 360° equirectangular background ──
-   Loads bg_walkthrough.png as an env sphere — rotates naturally with the
-   OrbitControls camera so it feels like a real surrounding landscape.
-   backgroundBlurriness softens it so the tower stays the focal point. */
-function SceneBackground() {
-  const texture = useLoader(THREE.TextureLoader, '/assets/images/bg_walkthrough.png');
-  const { scene } = useThree();
-  useEffect(() => {
-    texture.mapping = THREE.EquirectangularReflectionMapping;
-    texture.colorSpace = THREE.SRGBColorSpace;
-    scene.background = texture;
-    // Blur available in Three.js r155+; safe no-op on older builds
-    scene.backgroundBlurriness = 0;   /* 0 = sharp, 0.5 = heavy blur — adjust here */
-    return () => {
-      scene.background = null;
-      scene.backgroundBlurriness = 0;
-    };
-  }, [texture, scene]);
-  return null;
-}
+/* The last frame of the intro video. The hero scene is built on top of it:
+   the 3D towers are rendered from the same angle and framing as the video's
+   final shot, so the cut from film to page is a match cut. */
+const HERO_STILL = '/assets/images/hero_still.jpg';
+/* The GLB is a little shorter than the towers in the film; drawn 22% larger
+   (about its base) it covers them completely at the hero camera. */
+const MODEL_SCALE = 0.0122;
 
 /* Only two towers */
 const TOWERS = [
@@ -52,10 +39,10 @@ class ModelErrorBoundary extends Component {
   3. Build two new Three.js Meshes with independent materials.
   4. Hide the original, add the two halves → independent glow control.
 */
-/* Start fetching the model and the 360° background as soon as this module
+/* Start fetching the model and the hero still as soon as this module
    loads — i.e. while the intro video is still playing. */
 useGLTF.preload('/assets/models/tower.glb');
-useLoader.preload(THREE.TextureLoader, '/assets/images/bg_walkthrough.png');
+if (typeof Image !== 'undefined') { const i = new Image(); i.src = HERO_STILL; }
 
 function TowerGLB({ hoveredId }) {
   const { scene }  = useGLTF('/assets/models/tower.glb');
@@ -71,9 +58,9 @@ function TowerGLB({ hoveredId }) {
 
     // ── Ground the tower: apply scale first, compute floor Y, then drop it to Y=0 ──
     // Change the number below to raise (+) or lower (–) the tower manually if needed:
-    const MANUAL_Y_OFFSET = -10;   /* e.g. -1 moves it 1 unit lower, +1 raises it */
+    const MANUAL_Y_OFFSET = 0;     /* ground level; the hero camera in HeroRig assumes this */
 
-    scene.scale.set(0.01, 0.01, 0.01);
+    scene.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
     scene.updateMatrixWorld(true);
     const floorBox = new THREE.Box3().setFromObject(scene);
     if (isFinite(floorBox.min.y)) {
@@ -261,7 +248,7 @@ function TowerGLB({ hoveredId }) {
     });
   });
 
-  return <primitive object={scene} scale={0.01} />;
+  return <primitive object={scene} scale={MODEL_SCALE} />;
 }
 
 /* ── Geometric placeholder ── */
@@ -284,25 +271,124 @@ function PlaceholderTower() {
   );
 }
 
-/* ── Camera matches video last-frame angle ──
-   Video ends showing towers from front-right elevated view.
-   We start the 3D camera at the same perspective so the reveal feels
-   like the freeze-frame coming to life. */
-function CameraSetup() {
-  const { camera } = useThree();
-  const done = useRef(false);
+/* ── Hero camera ─────────────────────────────────────────
+   The 3D camera starts exactly where the intro video's camera ends
+   (worked out by overlaying renders on the video's last frame), so the
+   model sits on top of the towers in the still. From there:
+
+   • cinematic push-in: the camera's field of view narrows a little and the
+     backdrop image is scaled by the same factor, so the two stay locked
+     (a zoom is a uniform scale about the centre for both);
+   • then a gentle, limited drag-to-look (±9° sideways, ±5° up/down) with
+     damping, and a slow sway when idle. Limits keep the 3D towers believable
+     against the flat photo behind them.
+
+   Vertical field of view follows the viewport the same way `object-fit:
+   cover` crops the backdrop, so the composite holds on any screen shape. */
+const HERO = { az: -42, el: 33, dist: 36, look: [0, 7.4, 0], fovAt16x9: 45 };
+const PUSH_T0 = 0.5, PUSH_DUR = 3.2;   // seconds after reveal
+/* Zoom of the opening move, by screen shape. Landscape 16:9 pushes in a
+   touch; very wide screens and phones pull out so the whole building fits
+   (phones also leave room for the title above it). */
+const pushFor = (aspect, baseFovDeg) =>
+  aspect < 0.9 ? 0.86 : Math.min(1.05, Math.max(0.85, baseFovDeg / 38));
+/* On phones the composite also pans down (as a fraction of the height) so
+   the towers sit between the title and the cards. Backdrop and 3D view are
+   shifted by the same number of pixels, so they stay locked together. */
+const panFor = (aspect) => (aspect < 0.9 ? 0.17 : 0);
+const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+const deg = (d) => (d * Math.PI) / 180;
+
+function HeroRig({ backdropRef, cinematic, onSettled }) {
+  const { camera, gl, size } = useThree();
+  const az   = useRef(deg(HERO.az)), el = useRef(deg(HERO.el));   // current
+  const azT  = useRef(deg(HERO.az)), elT = useRef(deg(HERO.el));  // targets
+  const zoom = useRef(1);
+  const pan  = useRef(0);      // fraction of viewport height, +down
+  const t0   = useRef(null);
+  const lastInput = useRef(performance.now());
+  const settled = useRef(!cinematic);
+  const dragging = useRef(false);
+  const onSettledRef = useRef(onSettled);
+  useEffect(() => { onSettledRef.current = onSettled; }, [onSettled]);
+
+  /* base vertical fov for this viewport (see note above) */
+  const baseFov = () => {
+    const aspect = size.width / size.height, video = 16 / 9;
+    const t = Math.tan(deg(HERO.fovAt16x9) / 2);
+    return aspect > video ? 2 * Math.atan(t * video / aspect) : deg(HERO.fovAt16x9);
+  };
+
+  /* drag to look (mouse + touch) — only once the opening move is over */
+  useEffect(() => {
+    const el_ = gl.domElement;
+    let last = null;
+    const start = (x, y) => { if (!settled.current) return; last = { x, y }; dragging.current = true; };
+    const move  = (x, y) => {
+      if (!last) return;
+      azT.current = THREE.MathUtils.clamp(azT.current - (x - last.x) * 0.004, deg(HERO.az - 9), deg(HERO.az + 9));
+      elT.current = THREE.MathUtils.clamp(elT.current + (y - last.y) * 0.003, deg(HERO.el - 5), deg(HERO.el + 5));
+      last = { x, y }; lastInput.current = performance.now();
+    };
+    const end = () => { last = null; dragging.current = false; lastInput.current = performance.now(); };
+    const md = (e) => start(e.clientX, e.clientY), mm = (e) => move(e.clientX, e.clientY);
+    const ts = (e) => e.touches.length === 1 && start(e.touches[0].clientX, e.touches[0].clientY);
+    const tm = (e) => e.touches.length === 1 && move(e.touches[0].clientX, e.touches[0].clientY);
+    el_.addEventListener('mousedown', md); window.addEventListener('mousemove', mm); window.addEventListener('mouseup', end);
+    el_.addEventListener('touchstart', ts, { passive: true }); el_.addEventListener('touchmove', tm, { passive: true });
+    el_.addEventListener('touchend', end); el_.addEventListener('touchcancel', end);
+    return () => {
+      el_.removeEventListener('mousedown', md); window.removeEventListener('mousemove', mm); window.removeEventListener('mouseup', end);
+      el_.removeEventListener('touchstart', ts); el_.removeEventListener('touchmove', tm);
+      el_.removeEventListener('touchend', end); el_.removeEventListener('touchcancel', end);
+    };
+  }, [gl]);
+
   useFrame(() => {
-    if (done.current) return;
-    // Front-elevated-right angle → matches video aerial shot
-    /* ── Tune these 3 values to adjust the opening view ──
-       position(x, y, z): x=left/right, y=height above ground, z=distance back
-       lookAt(x, y, z)  : what the camera points at (y = halfway up tower)
-       fov              : 45–60 is natural, higher = fisheye               */
-    camera.position.set(10, 2, 24);  // low Y = near-ground level → tower looks grounded
-    camera.lookAt(0, 8, 0);          // aim at mid-tower height
-    camera.fov = 62;
+    const now = performance.now();
+
+    /* opening push-in */
+    if (cinematic && !settled.current) {
+      if (t0.current === null) t0.current = now;
+      const t = Math.min(1, Math.max(0, (now - t0.current) / 1000 - PUSH_T0) / PUSH_DUR);
+      const k = easeOutCubic(t);
+      const aspect = size.width / size.height;
+      const target = pushFor(aspect, THREE.MathUtils.radToDeg(baseFov()));
+      zoom.current = 1 + (target - 1) * k;
+      pan.current  = panFor(aspect) * k;
+      azT.current  = deg(HERO.az + 2.5 * k);          // a touch of parallax
+      if (t >= 1) { settled.current = true; onSettledRef.current?.(); }
+    }
+
+    /* idle sway once interactive */
+    if (settled.current && !dragging.current && now - lastInput.current > 3000) {
+      const s = (now - lastInput.current - 3000) / 1000;
+      const ease = Math.min(1, s / 4);
+      azT.current = deg(HERO.az + 2.5) + Math.sin(s / 7) * deg(3) * ease;
+      elT.current = deg(HERO.el) + Math.sin(s / 11) * deg(1) * ease;
+    }
+
+    az.current += (azT.current - az.current) * 0.06;
+    el.current += (elT.current - el.current) * 0.06;
+
+    const [lx, ly, lz] = HERO.look;
+    camera.position.set(
+      lx + HERO.dist * Math.cos(el.current) * Math.sin(az.current),
+      ly + HERO.dist * Math.sin(el.current),
+      lz + HERO.dist * Math.cos(el.current) * Math.cos(az.current));
+    camera.lookAt(lx, ly, lz);
+    camera.fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(baseFov() / 2) / zoom.current));
+    const shift = Math.round(pan.current * size.height);
+    if (shift) camera.setViewOffset(size.width, size.height, 0, -shift, size.width, size.height);
+    else if (camera.view) camera.clearViewOffset();
     camera.updateProjectionMatrix();
-    done.current = true;
+    if (backdropRef.current) {
+      const z = zoom.current;
+      backdropRef.current.style.transform = `translateY(${shift}px) scale(${z.toFixed(4)})`;
+      // when zoomed out, feather the edges of the sharp still into the blurred copy behind it
+      const m = (z < 0.995 || shift) ? 'radial-gradient(ellipse 50% 50% at 50% 50%, #000 72%, transparent 100%)' : 'none';
+      backdropRef.current.style.maskImage = m; backdropRef.current.style.webkitMaskImage = m;
+    }
   });
   return null;
 }
@@ -318,283 +404,190 @@ function WarmUp() {
   return null;
 }
 
-/* ── Smoothly lerp orbit pivot height ── */
-function TargetRig({ controlsRef, targetY }) {
-  useFrame(() => {
-    if (!controlsRef.current) return;
-    controlsRef.current.target.y +=
-      (targetY - controlsRef.current.target.y) * 0.08;
-    controlsRef.current.update();
-  });
-  return null;
-}
-
-function TowerScene({ controlsRef, targetY, hoveredId }) {
+function TowerScene({ hoveredId, backdropRef, cinematic, onSettled }) {
   return (
     <>
-      <CameraSetup />
-      <TargetRig controlsRef={controlsRef} targetY={targetY} />
-      {/* 360° photo background — loads fast, no poly count */}
-      <Suspense fallback={null}>
-        <SceneBackground />
-      </Suspense>
-      <ambientLight intensity={2.5} />
-      <directionalLight position={[8, 12, 6]} intensity={5.1} color="#c49a3c" />
-      <pointLight position={[4, 12, 6]} intensity={18.5} color="#c49a3c" />
-      <pointLight position={[4, 3, 4]}  intensity={0.3} color="#ffffff" />
+      <HeroRig backdropRef={backdropRef} cinematic={cinematic} onSettled={onSettled} />
+      {/* Daylight to match the still: sun high on the left, soft fill from the right */}
+      <ambientLight intensity={1.9} color="#f4f6ff" />
+      <directionalLight position={[-14, 26, 10]} intensity={2.6} color="#fff1dc" />
+      <directionalLight position={[18, 10, -6]} intensity={0.7} color="#dfe8ff" />
       <ModelErrorBoundary fallback={<PlaceholderTower />}>
         <Suspense fallback={<PlaceholderTower />}>
           <TowerGLB hoveredId={hoveredId} />
+          {/* soft ground contact so the model sits in the photo */}
+          <ContactShadows position={[0, 0.02, 0]} scale={34} blur={2.6} opacity={0.5} far={14} frames={1} />
         </Suspense>
       </ModelErrorBoundary>
     </>
   );
 }
 
-/* ── Main page ── */
+/* ── Main page ─────────────────────────────────────────── */
+const ease = [0.22, 1, 0.36, 1];
+const rise = (delay, dist = 18) => ({
+  initial: { opacity: 0, y: dist },
+  animate: { opacity: 1, y: 0 },
+  transition: { delay, duration: 0.9, ease },
+});
+
 export default function TowerSelection({ onSelectTower, onViewAmenities, onCustomize, behindIntro = false }) {
   const [hoveredId, setHoveredId] = useState(null);
-  const [loading3D, setLoading3D] = useState(true);
-  const [targetY, setTargetY]     = useState(7);  // orbit pivot at ~mid-tower
-  const controlsRef               = useRef();
+  const [ready, setReady]         = useState(false);
+  const [hintGone, setHintGone]   = useState(false);
+  const backdropRef               = useRef(null);
+  // Cinematic opening only when we arrive from the intro film.
+  const cinematic = useRef(behindIntro).current;
+  // Delays: staged after the cut when cinematic, brisk otherwise.
+  const D = cinematic ? { nav: 1.3, eyebrow: 1.7, title: 1.85, sub: 2.15, links: 2.4, card: 2.5, hint: 3.4 }
+                      : { nav: 0.1, eyebrow: 0.2, title: 0.25, sub: 0.35, links: 0.45, card: 0.3, hint: 1.2 };
+
+  useEffect(() => {
+    if (behindIntro || hintGone) return;
+    const t = setTimeout(() => setHintGone(true), 9000);
+    return () => clearTimeout(t);
+  }, [behindIntro, hintGone]);
 
   return (
-    <motion.div
-      className="absolute inset-0 flex flex-col"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.7 }}
-    >
-      {/* Dark bg for the right-side card panel — canvas has its own 360° env */}
-      <div style={{ position: 'absolute', inset: 0, background: '#0a0a0a' }} />
+    <motion.div className="absolute inset-0 overflow-hidden bg-black"
+      initial={{ opacity: cinematic ? 1 : 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+      transition={{ duration: 0.6 }}>
 
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-        <NavBar step={2} />
+      {/* Backdrop: last frame of the film, cover-cropped like the video.
+          A blurred copy sits underneath to fill the edges when the opening
+          move zooms out on phones and very wide screens. */}
+      <img src={HERO_STILL} alt="" aria-hidden="true"
+        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+        style={{ filter: 'blur(22px) brightness(0.85)', transform: 'scale(1.12)' }} draggable={false} />
+      <img ref={backdropRef} src={HERO_STILL} alt="" aria-hidden="true"
+        className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
+        style={{ transformOrigin: '50% 50%', willChange: 'transform' }} draggable={false} />
 
-        <div className="flex flex-col-reverse sm:flex-row flex-1 overflow-hidden">
+      {/* Live 3D towers, composited over the still */}
+      <Canvas className="absolute inset-0" style={{ position: 'absolute', inset: 0 }}
+        camera={{ fov: 45, near: 0.5, far: 400 }}
+        gl={{ alpha: true, antialias: true }}
+        dpr={Math.min(window.devicePixelRatio, 1.5)}
+        frameloop={behindIntro ? 'demand' : 'always'}
+        onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); setReady(true); }}>
+        {behindIntro && <WarmUp />}
+        <TowerScene hoveredId={hoveredId} backdropRef={backdropRef} cinematic={cinematic}
+          onSettled={() => {}} />
+      </Canvas>
 
-          {/* ── 3D Viewer ── */}
-          <motion.div
-            className="flex-1 relative min-h-0"
-            initial={{ opacity: 0, x: -30 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.3, duration: 0.7 }}
-          >
-            {/* Badge */}
-            <div className="absolute top-4 left-4 z-10 flex items-center gap-2 glass-dark px-3 py-1.5 rounded-full">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#c49a3c] animate-pulse" />
-              <span className="text-[#c49a3c] text-xs tracking-widest uppercase">Live 3D</span>
-            </div>
+      {/* Legibility gradients (never block the drag) */}
+      <div className="absolute inset-x-0 top-0 h-40 sm:h-40 pointer-events-none"
+        style={{ background: 'linear-gradient(rgba(0,0,0,0.55), rgba(0,0,0,0))' }} />
+      <div className="absolute inset-x-0 top-0 h-[46%] pointer-events-none sm:hidden"
+        style={{ background: 'linear-gradient(rgba(0,0,0,0.72) 30%, rgba(0,0,0,0))' }} />
+      <div className="absolute inset-x-0 bottom-0 h-[55%] pointer-events-none"
+        style={{ background: 'linear-gradient(rgba(0,0,0,0), rgba(0,0,0,0.25) 45%, rgba(0,0,0,0.78))' }} />
+      <div className="absolute inset-y-0 left-0 w-[48%] pointer-events-none hidden sm:block"
+        style={{ background: 'linear-gradient(90deg, rgba(0,0,0,0.45), rgba(0,0,0,0))' }} />
 
-            {/* Hover hint */}
-            <AnimatePresence>
-              {!hoveredId && !loading3D && (
-                <motion.div
-                  className="absolute top-4 right-4 z-10 glass-dark px-3 py-1.5 rounded-full border border-white/8"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                  transition={{ delay: 1.5 }}
-                >
-                  <span className="text-white/30 text-xs tracking-wider">Tap or hover a tower to explore</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Loading overlay */}
-            <AnimatePresence>
-              {loading3D && (
-                <motion.div
-                  className="absolute inset-0 z-20 flex items-center justify-center bg-black/60"
-                  exit={{ opacity: 0 }} transition={{ duration: 0.5 }}
-                >
-                  <LoadingSpinner label="Rendering model…" />
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            <Canvas
-              camera={{ position: [0, 3, 3], fov: 35 }}
-              shadows={false}
-              dpr={Math.min(window.devicePixelRatio, 1.5)}
-              performance={{ min: 0.5 }}
-              // Under the intro video: render on demand only (assets still
-              // load and upload), so the video plays smoothly on phones.
-              frameloop={behindIntro ? 'demand' : 'always'}
-              onCreated={() => setTimeout(() => setLoading3D(false), 800)}
-            >
-              {behindIntro && <WarmUp />}
-              <TowerScene
-                controlsRef={controlsRef}
-                targetY={targetY}
-                hoveredId={hoveredId}
-              />
-              <OrbitControls
-                ref={controlsRef}
-                autoRotate
-                autoRotateSpeed={0.8}
-                enablePan={false}
-                enableDamping
-                dampingFactor={0.07}
-                rotateSpeed={0.8}
-                zoomSpeed={1.2}
-                minDistance={3}
-                maxDistance={15}
-                minPolarAngle={Math.PI / 8}
-                maxPolarAngle={Math.PI / 2.2}
-              />
-            </Canvas>
-
-            {/* Camera height slider */}
-            <motion.div
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2"
-              style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)', padding: '10px 18px', borderRadius: 40, border: '1px solid rgba(255,255,255,0.08)' }}
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 1 }}
-            >
-              <span style={{ color: 'rgba(255,255,255,0.3)', fontSize: 9, letterSpacing: '0.2em', textTransform: 'uppercase' }}>
-                Camera Height
-              </span>
-              <div className="flex items-center gap-3">
-                <button onClick={() => setTargetY(v => Math.max(0, v - 2))}
-                  style={{ color: '#c49a3c', fontSize: 18, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}>−</button>
-                <input type="range" min={0} max={30} step={0.5} value={targetY}
-                  onChange={e => setTargetY(parseFloat(e.target.value))}
-                  style={{ width: 120, accentColor: '#c49a3c', cursor: 'pointer' }} />
-                <button onClick={() => setTargetY(v => Math.min(30, v + 2))}
-                  style={{ color: '#c49a3c', fontSize: 18, lineHeight: 1, background: 'none', border: 'none', cursor: 'pointer', opacity: 0.7 }}>+</button>
-                <span style={{ color: '#c49a3c', fontSize: 10, fontFamily: 'monospace', minWidth: 32 }}>
-                  {targetY.toFixed(1)}
-                </span>
-              </div>
-            </motion.div>
+      {/* Loading veil — only when the page is opened directly (not under the film) */}
+      <AnimatePresence>
+        {!ready && !behindIntro && (
+          <motion.div className="absolute inset-0 z-30 flex items-center justify-center bg-black"
+            exit={{ opacity: 0 }} transition={{ duration: 0.6 }}>
+            <LoadingSpinner label="Preparing view…" />
           </motion.div>
+        )}
+      </AnimatePresence>
 
-          {/* ── Tower cards ── */}
-          <div className="w-full sm:w-80 flex-shrink-0 flex flex-col sm:justify-center gap-3 p-4 sm:p-6 overflow-y-auto max-h-[44vh] sm:max-h-none">
-            <motion.div className="hidden sm:block mb-2"
-              initial={{ opacity: 0, y: -15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-              <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">Select Your Tower</p>
-              <h2 className="text-white text-4xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
-                Choose Residence
-              </h2>
-              <div className="w-10 h-px bg-[#c49a3c]/60 mt-3" />
-            </motion.div>
-            {/* Mobile compact title */}
-            <p className="flex sm:hidden text-[#c49a3c] text-xs tracking-[0.3em] uppercase">Choose Your Tower</p>
+      {/* Nav */}
+      <motion.div className="absolute inset-x-0 top-0 z-20"
+        initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: D.nav, duration: 0.8, ease }}>
+        <NavBar step={2} transparent />
+      </motion.div>
 
-            {/* Amenities shortcut — mobile only (desktop version below) */}
-            {onViewAmenities && (
-              <motion.button
-                onClick={onViewAmenities}
-                className="flex sm:hidden items-center justify-center gap-2 w-full py-2 text-[10px] tracking-[0.22em] uppercase text-white/30 rounded-lg border border-white/8 hover:text-white/55 hover:border-[#c49a3c]/30 transition-all duration-300"
-                whileTap={{ scale: 0.96 }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }}
-              >
-                <span className="text-[#c49a3c]/50">✦</span>
-                <span>Explore Amenities</span>
-              </motion.button>
-            )}
-            {/* Customize Room — mobile only */}
-            {onCustomize && (
-              <motion.button
-                onClick={onCustomize}
-                className="flex sm:hidden items-center justify-center gap-2 w-full py-2 text-[10px] tracking-[0.22em] uppercase text-white/30 rounded-lg border border-white/8 hover:text-white/55 hover:border-[#c49a3c]/30 transition-all duration-300"
-                whileTap={{ scale: 0.96 }}
-                initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.65 }}
-              >
-                <span className="text-[#c49a3c]/50">⬡</span>
-                <span>Customize Room</span>
-              </motion.button>
-            )}
-
-            {TOWERS.map((tower, i) => {
-              const isHovered = hoveredId === tower.id;
-              return (
-                <motion.div
-                  key={tower.id}
-                  className={`relative glass-dark rounded-xl p-5 cursor-pointer border overflow-hidden transition-all duration-300
-                    ${isHovered ? 'border-[#c49a3c]/70' : 'border-white/6 hover:border-white/20'}`}
-                  initial={{ opacity: 0, x: 40 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.3 + i * 0.12 }}
-                  onHoverStart={() => setHoveredId(tower.id)}
-                  onHoverEnd={() => setHoveredId(null)}
-                  onClick={() => onSelectTower(tower)}
-                  whileHover={{ scale: 1.025, y: -2 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  {/* Gold sweep */}
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-r from-[#c49a3c]/0 via-[#c49a3c]/8 to-[#c49a3c]/0"
-                    initial={{ x: '-100%' }}
-                    animate={{ x: isHovered ? '100%' : '-100%' }}
-                    transition={{ duration: 0.6 }}
-                  />
-                  {/* Left/Right label */}
-                  <div className="relative flex items-start justify-between mb-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <p className="text-[#c49a3c] text-[10px] tracking-[0.25em] uppercase">Tower {tower.id}</p>
-                        <span className="text-white/20 text-[10px]">
-                          {tower.id === 'A' ? '← Left' : 'Right →'}
-                        </span>
-                      </div>
-                      <h3 className="text-white text-lg font-light">{tower.name}</h3>
-                      <p className="text-white/40 text-xs mt-1">{tower.tagline}</p>
-                    </div>
-                    <span className="text-white/20 text-xs tabular-nums">{tower.units} units</span>
-                  </div>
-
-                  {/* Glow indicator dot */}
-                  <AnimatePresence>
-                    {isHovered && (
-                      <motion.div
-                        className="absolute top-3 right-3 flex items-center gap-1.5"
-                        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#c49a3c] animate-pulse" />
-                        <span className="text-[#c49a3c] text-[9px] tracking-widest uppercase">Highlighting</span>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  <motion.button
-                    className={`relative w-full mt-1 py-2.5 text-xs tracking-[0.2em] uppercase rounded-sm transition-all duration-300
-                      ${isHovered ? 'bg-[#c49a3c] text-black font-semibold' : 'border border-[#c49a3c]/40 text-[#c49a3c]'}`}
-                  >
-                    Select Floor →
-                  </motion.button>
-                </motion.div>
-              );
-            })}
-            {/* Amenities link — desktop */}
-            {onViewAmenities && (
-              <motion.button
-                onClick={onViewAmenities}
-                className="hidden sm:flex items-center justify-center gap-2 w-full mt-1 py-2.5 text-[10px] tracking-[0.22em] uppercase text-white/28 rounded-lg border border-white/7 hover:text-[#c49a3c]/70 hover:border-[#c49a3c]/25 transition-all duration-300"
-                whileHover={{ scale: 1.015 }} whileTap={{ scale: 0.97 }}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.75 }}
-              >
-                <span className="text-[#c49a3c]/45 text-[9px]">✦</span>
-                <span>Explore Amenities</span>
-              </motion.button>
-            )}
-            {/* Customize Room — desktop */}
-            {onCustomize && (
-              <motion.button
-                onClick={onCustomize}
-                className="hidden sm:flex items-center justify-center gap-2 w-full mt-1 py-2.5 text-[10px] tracking-[0.22em] uppercase text-white/28 rounded-lg border border-white/7 hover:text-[#c49a3c]/70 hover:border-[#c49a3c]/25 transition-all duration-300"
-                whileHover={{ scale: 1.015 }} whileTap={{ scale: 0.97 }}
-                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.82 }}
-              >
-                <span className="text-[#c49a3c]/45 text-[9px]">⬡</span>
-                <span>Customize Room</span>
-              </motion.button>
-            )}
-          </div>
-        </div>
+      {/* Hero copy */}
+      <div className="absolute z-20 left-5 right-5 sm:left-10 sm:right-auto sm:max-w-[520px]
+                      top-[72px] sm:top-auto sm:bottom-12 pointer-events-none">
+        <motion.p {...rise(D.eyebrow, 10)}
+          className="text-[#c49a3c] text-[10px] sm:text-[11px] tracking-[0.38em] uppercase">
+          Lakefront residences · Two towers
+        </motion.p>
+        <motion.h1 {...rise(D.title, 24)}
+          className="mt-2 sm:mt-3 text-white font-light leading-[1.02] text-[34px] sm:text-[56px] lg:text-[64px]"
+          style={{ fontFamily: "'Playfair Display', serif", textShadow: '0 2px 30px rgba(0,0,0,0.45)' }}>
+          Choose your<br />
+          <span className="italic text-[#e6cf93]">residence</span>
+        </motion.h1>
+        <motion.p {...rise(D.sub, 14)}
+          className="mt-3 sm:mt-5 text-white/60 text-[12.5px] sm:text-[15px] font-light leading-relaxed max-w-[380px]">
+          Two towers over the water. Pick one to explore its floors, plans
+          and a walk-through of every home.
+        </motion.p>
+        <motion.div {...rise(D.links, 10)} className="mt-4 sm:mt-6 flex gap-5 sm:gap-7 pointer-events-auto">
+          {onViewAmenities && (
+            <button onClick={onViewAmenities} className="group flex items-center gap-2 text-[10px] sm:text-[11px] tracking-[0.22em] uppercase text-white/55 hover:text-[#c49a3c] transition-colors duration-300">
+              <span className="w-5 h-px bg-current opacity-60 group-hover:w-8 transition-all duration-300" />Amenities
+            </button>
+          )}
+          {onCustomize && (
+            <button onClick={onCustomize} className="group flex items-center gap-2 text-[10px] sm:text-[11px] tracking-[0.22em] uppercase text-white/55 hover:text-[#c49a3c] transition-colors duration-300">
+              <span className="w-5 h-px bg-current opacity-60 group-hover:w-8 transition-all duration-300" />Customize a room
+            </button>
+          )}
+        </motion.div>
       </div>
+
+      {/* Tower cards — right rail on desktop, bottom stack on phones */}
+      <div className="absolute z-20 inset-x-4 bottom-4 flex flex-col gap-2
+                      sm:inset-x-auto sm:right-8 sm:bottom-auto sm:top-1/2 sm:-translate-y-1/2 sm:w-[300px] sm:gap-3">
+        {TOWERS.map((tower, i) => {
+          const hot = hoveredId === tower.id;
+          return (
+            <motion.button key={tower.id}
+              initial={{ opacity: 0, x: 40 }} animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: D.card + i * 0.14, duration: 0.9, ease }}
+              onHoverStart={() => setHoveredId(tower.id)} onHoverEnd={() => setHoveredId(null)}
+              onFocus={() => setHoveredId(tower.id)} onBlur={() => setHoveredId(null)}
+              onClick={() => onSelectTower(tower)}
+              whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}
+              className="relative text-left rounded-2xl overflow-hidden transition-colors duration-300"
+              style={{
+                background: hot ? 'rgba(20,16,8,0.72)' : 'rgba(8,8,10,0.55)',
+                border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : 'rgba(255,255,255,0.12)'}`,
+                backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)',
+                boxShadow: hot ? '0 20px 50px rgba(0,0,0,0.45), 0 0 0 1px rgba(196,154,60,0.15) inset' : '0 12px 40px rgba(0,0,0,0.35)',
+              }}>
+              {/* gold sweep */}
+              <motion.div className="absolute inset-0 pointer-events-none"
+                style={{ background: 'linear-gradient(100deg, transparent 30%, rgba(196,154,60,0.14) 50%, transparent 70%)' }}
+                initial={{ x: '-120%' }} animate={{ x: hot ? '120%' : '-120%' }} transition={{ duration: 0.8, ease }} />
+              <div className="relative px-4 py-3 sm:px-5 sm:py-4 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[#c49a3c] text-[9.5px] tracking-[0.3em] uppercase">
+                    Tower {tower.id} <span className="text-white/25 ml-1 tracking-normal normal-case">{tower.id === 'A' ? '· left' : '· right'}</span>
+                  </p>
+                  <h3 className="text-white text-[17px] sm:text-[20px] font-light mt-0.5 leading-tight"
+                      style={{ fontFamily: "'Playfair Display', serif" }}>{tower.name}</h3>
+                  <p className="text-white/45 text-[11px] sm:text-xs mt-0.5">{tower.tagline} · {tower.units} residences</p>
+                </div>
+                <span className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm transition-all duration-300
+                  ${hot ? 'bg-[#c49a3c] text-black' : 'border border-white/20 text-white/70'}`}>→</span>
+              </div>
+            </motion.button>
+          );
+        })}
+      </div>
+
+      {/* Hint */}
+      <AnimatePresence>
+        {!hintGone && (
+          <motion.div className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[150px] sm:bottom-6 pointer-events-none
+                                 flex items-center gap-2 px-3 py-1.5 rounded-full"
+            style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(10px)', border: '1px solid rgba(255,255,255,0.1)' }}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+            transition={{ delay: D.hint, duration: 0.8 }}>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#c49a3c] animate-pulse" />
+            <span className="text-white/55 text-[10px] tracking-[0.2em] uppercase">Live 3D · drag to look around</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }

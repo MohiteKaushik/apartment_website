@@ -3,11 +3,13 @@ import { motion } from 'framer-motion';
 
 const STEPS = ['Intro', 'Tower', 'Floor', 'Unit', 'Floor Plan', 'Walkthrough'];
 
-export default function NavBar({ step, onBack }) {
+export default function NavBar({ step, onBack, transparent = false }) {
   return (
     <motion.nav
-      className="relative flex items-center justify-between px-3 sm:px-8 py-3 sm:py-4 z-10 border-b border-white/6"
-      style={{ background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
+      className={`relative flex items-center justify-between px-3 sm:px-8 py-3 sm:py-4 z-10 ${transparent ? '' : 'border-b border-white/6'}`}
+      style={transparent
+        ? { background: 'transparent' }
+        : { background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(24px)', WebkitBackdropFilter: 'blur(24px)' }}
       initial={{ opacity: 0, y: -16 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}

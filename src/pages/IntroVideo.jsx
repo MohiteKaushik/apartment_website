@@ -23,7 +23,7 @@ export default function IntroVideo({ onComplete }) {
       style={{ zIndex: 50 }}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0, transition: { duration: 1.1, ease: 'easeInOut' } }}
+      exit={{ opacity: 0, transition: { duration: 0.9, ease: 'easeInOut' } }}
       transition={{ duration: 0.2 }}
     >
       {/* Video — stays visible (paused on last frame) during fade */}
@@ -36,8 +36,9 @@ export default function IntroVideo({ onComplete }) {
         preload="auto"
       />
 
-      {/* Subtle dark tint while playing */}
-      <div className="absolute inset-0 bg-black/25" />
+      {/* Soft darkening only while the start screen is up — the film itself
+          plays untinted so its last frame matches the page behind it. */}
+      {!started && <div className="absolute inset-0 bg-black/40" />}
 
       {/* Brand / start screen */}
       {!started && (
