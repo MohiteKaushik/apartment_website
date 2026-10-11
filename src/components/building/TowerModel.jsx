@@ -151,7 +151,7 @@ export default function TowerModel({ stateRef, growRef }) {
       u.uDim.value   = damp(u.uDim.value, bandOn ? 1 : 0, k);
 
       // cut the tower off above the chosen floor in the floor-plate view
-      const cutTo = s.view === 'unit' && active && s.floor ? floorTop(s.floor) + 0.005 : 22;
+      const cutTo = (s.view === 'unit' || s.view === 'unitZoom') && active && s.floor ? floorTop(s.floor) + 0.005 : 22;
       clipY.current[id] = damp(clipY.current[id], cutTo, kc);
       mesh.material.userData.clip.constant = clipY.current[id] >= 21.9 ? 100 : clipY.current[id];
     });

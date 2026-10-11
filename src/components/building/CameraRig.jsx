@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TOWERS, floorBase } from '../../data/towerGeometry';
+import { unitWorld } from './FloorPlate';
 
 /* ── Camera poses ────────────────────────────────────────
    One camera, flown between a handful of poses:
@@ -39,6 +40,8 @@ const pushFor = (aspect, baseFovDeg) =>
    title and the cards. */
 const panFor = (aspect) => (aspect < 0.9 ? 0.17 : 0);
 
+/* window.__slowFlights = N stretches every flight N× (used by the screenshot tests) */
+const slow = () => (typeof window !== 'undefined' && window.__slowFlights) || 1;
 const easeOutCubic   = (t) => 1 - Math.pow(1 - t, 3);
 const easeInOutCubic = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 const deg = (d) => (d * Math.PI) / 180;
@@ -61,6 +64,14 @@ export function poseFor(s, aspect) {
     return phone
       ? { az: TOWER_AZ[s.towerId] + 8, el: 42, dist: 9.8, look: [cx, y, cz], fov: 46, ox: 0, oy: 0.2 }
       : { az: TOWER_AZ[s.towerId] + 8, el: 38, dist: 7.6, look: [cx, y, cz], fov: 42, ox: 0.11, oy: 0.02 };
+  }
+  if (s.view === 'unitZoom' && s.towerId && s.floor && s.flatId) {
+    // down onto the chosen home, before its floor plan opens
+    const [ux, uy, uz] = unitWorld(s.towerId, s.floor, s.flatId);
+    const az = TOWER_AZ[s.towerId] + 8;
+    return phone
+      ? { az, el: 58, dist: 4.4, look: [ux, uy, uz], fov: 46, ox: 0, oy: 0.12 }
+      : { az, el: 56, dist: 3.4, look: [ux, uy, uz], fov: 42, ox: 0.06, oy: 0.0 };
   }
   if (s.view === 'amenities') {
     return { az: HERO.az, el: 50, dist: phone ? 20 : 15, look: [0.4, 2.3, 0.2], fov: 44, ox: 0, oy: 0 };
@@ -146,13 +157,21 @@ export default function CameraRig({ stateRef, backdropRef, fxRef, growRef, cinem
 
     /* which pose do we want? */
     const target = hero ? heroPose() : poseFor(s, aspect);
-    const key = hero ? 'hero' : `${s.view}:${s.towerId}:${s.floor}`;
-    if (!cur.current) { cur.current = { ...target, look: [...target.look] }; from.current = null; }
+    const key = hero ? 'hero' : `${s.view}:${s.towerId}:${s.floor}:${s.view === 'unitZoom' ? s.flatId : ''}`;
+    if (!cur.current) {
+      cur.current = { ...target, look: [...target.look] };
+      from.current = null;
+      // coming back from a floor plan: start down on that home and pull out
+      if (s.view === 'unit' && s.flatId) {
+        const z = poseFor({ ...s, view: 'unitZoom' }, aspect);
+        if (z) { cur.current = { ...z, look: [...z.look] }; from.current = { ...z, look: [...z.look] }; t0.current = now; dur.current = 1.7; }
+      }
+    }
     if (key !== lastKey.current) {
       if (lastKey.current) {
         from.current = { ...cur.current, look: [...cur.current.look] };
         t0.current = now;
-        dur.current = hero || lastKey.current === 'hero' ? 1.9 : s.view === 'unit' || lastKey.current.startsWith('unit') ? 1.7 : 1.4;
+        dur.current = s.view === 'unitZoom' ? 1.3 : hero || lastKey.current === 'hero' ? 1.9 : s.view === 'unit' || lastKey.current.startsWith('unit') ? 1.7 : 1.4;
         azOffT.current = 0; elOffT.current = 0;
         lastInput.current = now;
       }
@@ -160,7 +179,7 @@ export default function CameraRig({ stateRef, backdropRef, fxRef, growRef, cinem
     }
     to.current = target;
     if (from.current) {
-      const k = easeInOutCubic(Math.min(1, (now - t0.current) / 1000 / dur.current));
+      const k = easeInOutCubic(Math.min(1, (now - t0.current) / 1000 / (dur.current * slow())));
       const f = from.current, t = to.current, c = cur.current;
       c.az = lerp(f.az, t.az, k); c.el = lerp(f.el, t.el, k); c.dist = lerp(f.dist, t.dist, k);
       c.fov = lerp(f.fov, t.fov, k); c.ox = lerp(f.ox, t.ox, k); c.oy = lerp(f.oy, t.oy, k);

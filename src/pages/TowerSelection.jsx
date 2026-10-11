@@ -72,6 +72,7 @@ export default function TowerSelection({
   const [hoverFlat,  setHoverFlat]  = useState(null);
   const [hoverAmenities, setHoverAmenities] = useState(false);
   const [diving, setDiving] = useState(false);     // flying down to the amenities
+  const [zoomFlat, setZoomFlat] = useState(null);  // diving onto a chosen home
   const [ready, setReady]   = useState(false);
   const [hintGone, setHintGone] = useState(false);
   const backdropRef = useRef(null), blurRef = useRef(null), vignetteRef = useRef(null), fxRef = useRef(null), growRef = useRef(null);
@@ -87,11 +88,19 @@ export default function TowerSelection({
   const towerId = selection.tower?.id || null;
   const stateRef = useRef({});
   stateRef.current = {
-    view: diving ? 'amenities' : view, towerId, floor: selection.floor || null,
-    hoverTower, hoverFloor, hoverFlat, hoverAmenities,
+    view: diving ? 'amenities' : zoomFlat ? 'unitZoom' : view, towerId, floor: selection.floor || null,
+    flatId: zoomFlat?.id || selection.flat?.id || null,
+    hoverTower, hoverFloor, hoverFlat: zoomFlat ? zoomFlat.id : hoverFlat, hoverAmenities,
   };
 
-  useEffect(() => { setHoverFloor(null); setHoverFlat(null); setHoverTower(null); }, [view]);
+  useEffect(() => { setHoverFloor(null); setHoverFlat(null); setHoverTower(null); setZoomFlat(null); }, [view]);
+
+  /* a home was chosen: dive onto it, then open its floor plan */
+  const pickFlat = (flat) => {
+    if (zoomFlat) return;
+    setZoomFlat(flat);
+    setTimeout(() => onSelectFlat?.(flat), 1350 * ((typeof window !== 'undefined' && window.__slowFlights) || 1));
+  };
   useEffect(() => {
     if (behindIntro || hintGone || view !== 'hero') return undefined;
     const t = setTimeout(() => setHintGone(true), 9000);
@@ -101,7 +110,7 @@ export default function TowerSelection({
   const goAmenities = () => {
     if (diving) return;
     setDiving(true);
-    setTimeout(() => { onViewAmenities?.(); }, 1050);
+    setTimeout(() => { onViewAmenities?.(); }, 1050 * ((typeof window !== 'undefined' && window.__slowFlights) || 1));
   };
 
   const hero = view === 'hero' && !diving;
@@ -159,7 +168,7 @@ export default function TowerSelection({
         </ModelErrorBoundary>
         {towerId && selection.floor && (view === 'unit' || view === 'floor') && (
           <FloorPlate towerId={towerId} floor={selection.floor} visible={view === 'unit'}
-            hoverFlat={hoverFlat} onHover={setHoverFlat} onSelect={(flat) => onSelectFlat?.(flat)} />
+            hoverFlat={zoomFlat ? zoomFlat.id : hoverFlat} onHover={(id) => !zoomFlat && setHoverFlat(id)} onSelect={pickFlat} />
         )}
       </Canvas>
 
@@ -185,7 +194,7 @@ export default function TowerSelection({
 
       {/* Nav */}
       <motion.div className="absolute inset-x-0 top-0 z-30"
-        initial={{ opacity: 0, y: -12 }} animate={{ opacity: diving ? 0 : 1, y: 0 }}
+        initial={{ opacity: 0, y: -12 }} animate={{ opacity: diving || zoomFlat ? 0 : 1, y: 0 }}
         transition={{ delay: D.nav, duration: 0.8, ease }}>
         <NavBar step={step} transparent onBack={view === 'hero' ? undefined : onBack} />
       </motion.div>
@@ -289,15 +298,15 @@ export default function TowerSelection({
         )}
 
         {/* ── Home picker ── */}
-        {view === 'unit' && (
+        {view === 'unit' && !zoomFlat && (
           <FlatSelection key="unit-ui" tower={selection.tower} floor={selection.floor} hovered={hoverFlat} onHover={setHoverFlat}
-            onSelect={(flat) => onSelectFlat?.(flat)} touch={touch} />
+            onSelect={pickFlat} touch={touch} />
         )}
       </AnimatePresence>
 
       {/* A small caption on the 3D side while choosing */}
       <AnimatePresence>
-        {(view === 'floor' || view === 'unit') && !diving && (
+        {(view === 'floor' || view === 'unit') && !diving && !zoomFlat && (
           <motion.div key="caption" className="absolute z-20 left-5 sm:left-10 bottom-[58%] sm:bottom-10 pointer-events-none"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 1.2, duration: 0.8 }}>
             <p className="text-white/35 text-[10px] tracking-[0.3em] uppercase">
