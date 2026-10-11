@@ -1,159 +1,82 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import NavBar from '../components/NavBar';
-import PageBackground from '../components/PageBackground';
+import React from 'react';
+import { motion } from 'framer-motion';
+import FLATS from '../data/flats';
 
-const FLATS = [
-  { id: 'A', unit: '01', type: '3 BHK', area: '1,850 sq.ft', facing: 'North', price: '₹4.2 Cr' },
-  { id: 'B', unit: '02', type: '4 BHK', area: '2,450 sq.ft', facing: 'East',  price: '₹5.8 Cr' },
-  { id: 'C', unit: '03', type: '4 BHK', area: '2,300 sq.ft', facing: 'South', price: '₹5.4 Cr' },
-  { id: 'D', unit: '04', type: '2 BHK', area: '1,450 sq.ft', facing: 'West',  price: '₹3.2 Cr' },
-];
+/* ── Home picker ─────────────────────────────────────────
+   The panel beside the cut-open tower: the four homes on the chosen
+   floor. Hovering a card lights that home on the 3D floor plate (and the
+   other way round); clicking opens its floor plan. */
 
-// Positions on the floor-plate diagram (percentage-based)
-const FLAT_POS = {
-  A: { top: '8%',  left: '8%',  width: '40%', height: '44%' },
-  B: { top: '8%',  left: '52%', width: '40%', height: '44%' },
-  C: { top: '56%', left: '52%', width: '40%', height: '36%' },
-  D: { top: '56%', left: '8%',  width: '40%', height: '36%' },
-};
+const ease = [0.22, 1, 0.36, 1];
 
-export default function FlatSelection({ selection, onSelectFlat, onBack }) {
-  const [hovered, setHovered] = useState(null);
-
+export default function FlatSelection({ tower, floor, hovered, onHover, onSelect, touch }) {
   return (
     <motion.div
-      className="absolute inset-0 flex flex-col"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.65 }}
-    >
-      <PageBackground src="/assets/images/bg_unit.png" intensity="heavy" />
-      <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-      <NavBar step={4} onBack={onBack} />
+      className="absolute z-20 flex flex-col pointer-events-auto
+                 inset-x-0 bottom-0 h-[50%] rounded-t-3xl
+                 sm:inset-x-auto sm:right-0 sm:top-0 sm:bottom-0 sm:h-auto sm:w-[46%] lg:w-[420px] sm:rounded-none"
+      style={{ background: 'linear-gradient(180deg, rgba(6,6,8,0.82), rgba(6,6,8,0.9))',
+               backdropFilter: 'blur(22px)', WebkitBackdropFilter: 'blur(22px)',
+               borderLeft: '1px solid rgba(255,255,255,0.07)', borderTop: '1px solid rgba(255,255,255,0.08)' }}
+      initial={{ opacity: 0, x: 60 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 60 }}
+      transition={{ duration: 0.9, ease, delay: 0.5 }}>
 
-      <div className="flex flex-col md:flex-row flex-1 overflow-y-auto md:overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col px-5 pt-5 sm:px-9 sm:pt-[92px] pb-4 sm:pb-8 overflow-y-auto">
+        <motion.p initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8, duration: 0.7 }}
+          className="text-[#c49a3c] text-[10px] sm:text-[11px] tracking-[0.38em] uppercase">
+          {tower?.name} · Floor {floor}
+        </motion.p>
+        <motion.h2 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9, duration: 0.8 }}
+          className="mt-1.5 sm:mt-2 text-white font-light leading-none text-[26px] sm:text-[38px]"
+          style={{ fontFamily: "'Playfair Display', serif" }}>
+          Select a <span className="italic text-[#e6cf93]">home</span>
+        </motion.h2>
+        <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.05, duration: 0.8 }}
+          className="hidden sm:block mt-3 text-white/45 text-[13px] font-light leading-relaxed">
+          Four homes around a central lift and stair core. {touch ? 'Tap' : 'Hover'} one to see it on the floor plate.
+        </motion.p>
 
-        {/* Floor plate diagram */}
-        <motion.div
-          className="flex-1 flex items-center justify-center p-4 md:p-8"
-          initial={{ opacity: 0, scale: 0.96 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.25 }}
-        >
-          <div className="relative w-full max-w-xs sm:max-w-sm md:max-w-lg aspect-square">
-            {/* Outer border */}
-            <div className="absolute inset-0 rounded-xl border border-white/10 glass-dark" />
-
-            {/* Compass */}
-            <div className="absolute top-3 right-4 text-white/20 text-xs tracking-wider">N ↑</div>
-
-            {/* Floor label */}
-            <div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-white/15 text-[10px] tracking-widest uppercase">
-              Floor {selection.floor} · {selection.tower?.name}
-            </div>
-
-            {/* Flat zones */}
-            {FLATS.map((flat) => {
-              const isHov = hovered === flat.id;
-              return (
-                <motion.button
-                  key={flat.id}
-                  className={`absolute flex flex-col items-center justify-center rounded-lg border cursor-pointer transition-all duration-300
-                    ${isHov
-                      ? 'border-[#c49a3c] bg-[#c49a3c]/12'
-                      : 'border-white/10 bg-white/2 hover:border-white/25'}`}
-                  style={FLAT_POS[flat.id]}
-                  onHoverStart={() => setHovered(flat.id)}
-                  onHoverEnd={() => setHovered(null)}
-                  onClick={() => onSelectFlat(flat)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                >
-                  <motion.span
-                    className="text-2xl font-light"
-                    animate={{ color: isHov ? '#c49a3c' : 'rgba(255,255,255,0.3)' }}
-                  >
-                    {flat.unit}
-                  </motion.span>
-                  <span className="text-[10px] text-white/25 mt-1 tracking-wider">{flat.type}</span>
-                  <AnimatePresence>
-                    {isHov && (
-                      <motion.span
-                        className="text-[10px] text-[#c49a3c]/70 mt-0.5"
-                        initial={{ opacity: 0, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0 }}
-                      >
-                        {flat.price}
-                      </motion.span>
-                    )}
-                  </AnimatePresence>
-                </motion.button>
-              );
-            })}
-
-            {/* Lift/core */}
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[10%] h-[18%] border border-white/8 bg-white/3 rounded flex items-center justify-center">
-              <span className="text-white/15 text-[7px] tracking-widest" style={{ writingMode: 'vertical-rl' }}>LIFT</span>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Right panel */}
-        <div className="w-full md:w-80 flex flex-col p-4 md:p-8 border-t md:border-t-0 md:border-l border-white/6 gap-3">
-          <motion.div
-            className="mb-2"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-          >
-            <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">
-              Floor {selection.floor} · {selection.tower?.name}
-            </p>
-            <h2 className="text-white text-2xl md:text-3xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
-              Select Unit
-            </h2>
-            <div className="w-8 h-px bg-[#c49a3c]/60 mt-3" />
-          </motion.div>
-
+        <div className="mt-4 sm:mt-7 flex flex-col gap-2 sm:gap-2.5">
           {FLATS.map((flat, i) => {
-            const isHov = hovered === flat.id;
+            const hot = hovered === flat.id;
             return (
-              <motion.div
-                key={flat.id}
-                className={`relative glass-dark rounded-xl p-4 cursor-pointer border overflow-hidden transition-all duration-300
-                  ${isHov ? 'border-[#c49a3c]/60' : 'border-white/6 hover:border-white/18'}`}
-                initial={{ opacity: 0, x: 25 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: 0.25 + i * 0.09 }}
-                onHoverStart={() => setHovered(flat.id)}
-                onHoverEnd={() => setHovered(null)}
-                onClick={() => onSelectFlat(flat)}
-                whileHover={{ scale: 1.02, y: -2 }}
-                whileTap={{ scale: 0.97 }}
-              >
-                {/* Shimmer line on hover */}
-                <motion.div
-                  className="absolute top-0 left-0 w-full h-px bg-gradient-to-r from-transparent via-[#c49a3c]/60 to-transparent"
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: isHov ? 1 : 0 }}
-                  transition={{ duration: 0.3 }}
-                />
-
-                <div className="flex justify-between items-start">
-                  <div>
-                    <p className="text-white font-medium text-sm">Unit {flat.unit} · {flat.type}</p>
-                    <p className="text-white/35 text-xs mt-0.5">{flat.area} · {flat.facing} Facing</p>
+              <motion.button key={flat.id}
+                initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 1.0 + i * 0.1, duration: 0.8, ease }}
+                onHoverStart={() => !touch && onHover(flat.id)} onHoverEnd={() => !touch && onHover(null)}
+                onFocus={() => onHover(flat.id)}
+                onClick={() => onSelect(flat)}
+                whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}
+                className="relative text-left rounded-xl overflow-hidden px-4 py-3 sm:px-5 sm:py-4 transition-colors duration-300"
+                style={{
+                  background: hot ? 'rgba(196,154,60,0.1)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : 'rgba(255,255,255,0.1)'}`,
+                  boxShadow: hot ? '0 0 30px rgba(196,154,60,0.16)' : 'none',
+                }}>
+                <motion.div className="absolute inset-0 pointer-events-none"
+                  style={{ background: 'linear-gradient(100deg, transparent 30%, rgba(196,154,60,0.14) 50%, transparent 70%)' }}
+                  initial={{ x: '-120%' }} animate={{ x: hot ? '120%' : '-120%' }} transition={{ duration: 0.8, ease }} />
+                <div className="relative flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                    <span className="text-[22px] sm:text-[26px] font-light leading-none w-8"
+                      style={{ fontFamily: "'Playfair Display', serif", color: hot ? '#e6cf93' : 'rgba(255,255,255,0.5)' }}>
+                      {flat.unit}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="text-white text-[14px] sm:text-[15px]">{flat.type}</p>
+                      <p className="text-white/40 text-[11px] sm:text-xs mt-0.5">{flat.area} · {flat.facing} facing</p>
+                    </div>
                   </div>
-                  <span className="text-[#c49a3c] text-sm font-light">{flat.price}</span>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <span className="text-[#c49a3c] text-[13px] font-light">{flat.price}</span>
+                    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all duration-300
+                      ${hot ? 'bg-[#c49a3c] text-black' : 'border border-white/20 text-white/60'}`}>→</span>
+                  </div>
                 </div>
-              </motion.div>
+              </motion.button>
             );
           })}
         </div>
-      </div>
       </div>
     </motion.div>
   );

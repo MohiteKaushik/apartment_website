@@ -2,8 +2,6 @@ import React, { useState } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import IntroVideo from './pages/IntroVideo';
 import TowerSelection from './pages/TowerSelection';
-import FloorSelection from './pages/FloorSelection';
-import FlatSelection from './pages/FlatSelection';
 import FloorPlanView from './pages/FloorPlanView';
 import WalkthroughView from './pages/WalkthroughView';
 import ContactPage from './pages/ContactPage';
@@ -21,6 +19,9 @@ const PAGES = {
   AMENITIES:  'AMENITIES',
   CUSTOMIZER: 'CUSTOMIZER',
 };
+
+/* Which view of the building explorer each of its pages shows. */
+const EXPLORER_VIEW = { INTRO: 'hero', TOWER: 'hero', FLOOR: 'floor', FLAT: 'unit' };
 
 export default function App() {
   const [page, setPage] = useState(PAGES.INTRO);
@@ -49,9 +50,15 @@ export default function App() {
         )}
       </AnimatePresence>
       <AnimatePresence mode="wait">
-        {(page === PAGES.TOWER || page === PAGES.INTRO) && (
+        {/* Tower → floor → home are three views of one live 3D scene: the
+            page stays mounted and the camera flies between them. */}
+        {EXPLORER_VIEW[page] && (
           <TowerSelection key="tower" selection={selection} behindIntro={page === PAGES.INTRO}
-            onSelectTower={tower => navigate(PAGES.FLOOR, { tower })}
+            view={EXPLORER_VIEW[page]}
+            onSelectTower={tower => navigate(PAGES.FLOOR, { tower, floor: null, flat: null })}
+            onSelectFloor={floor => navigate(PAGES.FLAT, { floor, flat: null })}
+            onSelectFlat={flat => navigate(PAGES.FLOOR_PLAN, { flat })}
+            onBack={() => navigate(page === PAGES.FLAT ? PAGES.FLOOR : PAGES.TOWER)}
             onViewAmenities={() => navigate(PAGES.AMENITIES)}
             onCustomize={() => navigate(PAGES.CUSTOMIZER)} />
         )}
@@ -63,16 +70,6 @@ export default function App() {
         {page === PAGES.CUSTOMIZER && (
           <RoomCustomizerPage key="customizer"
             onBack={() => navigate(PAGES.TOWER)} />
-        )}
-        {page === PAGES.FLOOR && (
-          <FloorSelection key="floor" selection={selection}
-            onSelectFloor={floor => navigate(PAGES.FLAT, { floor })}
-            onBack={() => navigate(PAGES.TOWER)} />
-        )}
-        {page === PAGES.FLAT && (
-          <FlatSelection key="flat" selection={selection}
-            onSelectFlat={flat => navigate(PAGES.FLOOR_PLAN, { flat })}
-            onBack={() => navigate(PAGES.FLOOR)} />
         )}
         {page === PAGES.FLOOR_PLAN && (
           <FloorPlanView key="floorplan" selection={selection}
