@@ -5,6 +5,7 @@ import { useGLTF, Environment, Bvh } from '@react-three/drei';
 import { XR, XROrigin, createXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 import NavBar from '../components/NavBar';
+import EntranceCorridor, { EntranceMarker } from '../components/building/EntranceCorridor';
 import PageBackground from '../components/PageBackground';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { TourController, TourHUD, TourBar } from '../components/GuidedTour';
@@ -490,6 +491,9 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const canvasWrapRef   = useRef(null);
   const tourApi         = useRef(null);
   const modelRef        = useRef(null);   // the flat model — walls block in-room movement
+  const corridorRef     = useRef(null);   // the lift lobby — its walls and door block too
+  const fadeRef         = useRef(null);   // black veil used while crossing the front door
+  const portalRef       = useRef({ door: { target: 0, value: 0 }, fade: (v) => { if (fadeRef.current) fadeRef.current.style.opacity = v.toFixed(3); } });
   const menuHoverRef    = useRef(0);      // >0 while a controller ray is on the VR room menu
   const [stopIndex, setStopIndex] = useState(0);
 
@@ -566,7 +570,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
             {['2D', '3D'].map(m => (
               <motion.button key={m}
                 className={`px-4 sm:px-7 py-1.5 sm:py-2 rounded-full text-xs tracking-[0.2em] uppercase font-medium transition-all duration-300
-                  ${mode === m.toLowerCase() ? 'bg-[#c49a3c] text-black shadow-lg' : 'text-white/50 hover:text-white'}`}
+                  ${mode === m.toLowerCase() ? 'btn-gold' : 'text-white/50 hover:text-white'}`}
                 onClick={() => { setMode(m.toLowerCase()); setLoading(true); }}
                 whileTap={{ scale: 0.95 }}>
                 {m}
@@ -607,11 +611,22 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                       <Bvh firstHitOnly ref={modelRef}>
                         <FlatModel modelPath={modelPath} />
                       </Bvh>
-                      <Environment preset="apartment" />
+                      {tour && (
+                        <>
+                          <group ref={corridorRef}>
+                            <EntranceCorridor unitNumber={selection.flat?.unit || '01'} unitLabel={flatType || 'Residence'}
+                              doorRef={{ current: portalRef.current.door }} lowWalls={!!tour.lowWalls} />
+                          </group>
+                          {(() => { const e = tour.stops.find((st) => !st.outside); const d = tour.door || { x: e.x + Math.sin(e.yaw) * 0.6, z: e.z + Math.cos(e.yaw) * 0.6 };
+                                    return <EntranceMarker x={d.x} z={d.z} y={tour.floorY || 0} />; })()}
+                        </>
+                      )}
+                      <Environment files="/assets/env/studio.hdr" environmentIntensity={0.5} />
                     </Suspense>
                     {tour ? (
                       <>
-                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef} menuHoverRef={menuHoverRef}
+                        <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef} extraBlockersRef={corridorRef}
+                          portalRef={portalRef} menuHoverRef={menuHoverRef}
                           onStopChange={setStopIndex} onBack={onBack} onEnquire={onEnquire} />
                         <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting}
                           hoverRef={menuHoverRef} onGoTo={(i) => tourApi.current?.goTo(i)} />
@@ -625,6 +640,9 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     )}
                   </XR>
                 </Canvas>
+
+                {/* Darkness while stepping through the front door */}
+                <div ref={fadeRef} className="absolute inset-0 z-10 pointer-events-none bg-black" style={{ opacity: 0 }} />
 
                 {/* Guided tour controls — hidden when VR is presenting (controller + HUD used instead) */}
                 {tour && !isVRPresenting && (
@@ -757,7 +775,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
           {/* Enquire button */}
           {onEnquire && (
             <motion.button
-              className="absolute top-4 right-4 z-10 px-3 sm:px-5 py-2 sm:py-2.5 bg-[#c49a3c] text-black text-xs tracking-[0.15em] uppercase font-semibold rounded-full hover:bg-[#d4af6e] transition-colors duration-300"
+              className="btn-gold absolute top-4 right-4 z-10 px-3 sm:px-5 py-2 sm:py-2.5 text-xs tracking-[0.15em] uppercase rounded-full"
               whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
               initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1 }}
               onClick={onEnquire}

@@ -10,6 +10,14 @@
    Per unit:
      eyeHeight – camera height on screen (VR uses the headset's real height)
      reach     – how far (m) the visitor may slide forward / back from a stop
+     door      – where the front door is inside the model (the entrance
+                 marker sits there); defaults to just behind the first
+                 inside stop
+
+   Every tour begins outside, in the lift lobby in front of the home's
+   door (CORRIDOR in EntranceCorridor.jsx, far from the model). That stop
+   is marked `outside`: the route builder skips it, and the tour crosses
+   the door with a fade rather than a glide.
 
    The walking routes between stops (through doorways, not walls) live in
    tourRoutes.json and are generated from these stops and the models:
@@ -19,6 +27,8 @@
    Positions were picked by rendering each model from the spot.
    ───────────────────────────────────────────────────────────── */
 
+const CORRIDOR_STOP = { id: 'corridor', label: 'Lift lobby', x: 0, z: 62.2, yaw: 0, outside: true };
+
 const TOURS = {
   /* public/assets/models/flat.glb — Sketchfab dollhouse bake with low
      interior walls. Bathrooms and balconies left out: knee-high walls and
@@ -26,7 +36,10 @@ const TOURS = {
   '4bhk': {
     eyeHeight:   1.6,
     reach:       3.0,
+    door:        { x: 3.75, z: -2.95 },
+    lowWalls:    true,
     stops: [
+      CORRIDOR_STOP,
       { id: 'entrance',  label: 'Entrance',       x:  4.5, z: -1.2, yaw:  2.356 },
       { id: 'dining',    label: 'Dining',         x:  4.0, z: -1.5, yaw:  1.571 },
       { id: 'living',    label: 'Living Room',    x:  3.4, z:  2.6, yaw:  1.571 },
@@ -43,7 +56,9 @@ const TOURS = {
   '2bhk': {
     eyeHeight:   1.6,
     reach:       3.0,
+    door:        { x: -4.35, z: -5.0 },
     stops: [
+      CORRIDOR_STOP,
       { id: 'hallway', label: 'Hallway',        x: -4.35, z: -4.4, yaw:  3.142 },
       { id: 'living',  label: 'Living Room',    x: -3.0,  z:  1.2, yaw:  2.3 },
       { id: 'dining',  label: 'Dining',         x: -0.6,  z:  3.6, yaw:  0.9 },
@@ -59,7 +74,9 @@ const TOURS = {
   '3bhk': {
     eyeHeight:   1.5,
     reach:       3.0,
+    door:        { x: -4.75, z: 2.5 },
     stops: [
+      CORRIDOR_STOP,
       { id: 'foyer',    label: 'Foyer',            x: -3.9, z:  2.6,  yaw: -1.571 },
       { id: 'living',   label: 'Living Room',      x:  0.0, z:  3.0,  yaw:  1.4 },
       { id: 'dining',   label: 'Dining',           x:  3.81, z: 3.71, yaw:  0.75 },

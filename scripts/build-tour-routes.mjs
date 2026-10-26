@@ -193,7 +193,10 @@ function routesFor(tour, mesh) {
   }
 
   const routes = {}, notes = [];
-  for (const s of tour.stops) {
+  // stops marked `outside` (the lift lobby) are not on the model's floor:
+  // the tour crosses that door with a fade, so no route is needed
+  const inside = tour.stops.filter((s) => !s.outside);
+  for (const s of inside) {
     const [i, j] = cellOf(s.x, s.z);
     if (floor[id(i, j)] && D[id(i, j)] >= 2) continue;
     // suggest the nearest reachable spot with floor and ≥ 30 cm clearance
@@ -210,7 +213,7 @@ function routesFor(tour, mesh) {
     }
     notes.push(`stop "${s.id}" is ${floor[id(i, j)] ? `only ${D[id(i, j)] * 10} cm from a wall` : 'not over the floor'}${tip}`);
   }
-  for (const a of tour.stops) for (const b of tour.stops) {
+  for (const a of inside) for (const b of inside) {
     if (a === b) continue;
     const raw = astar(a, b);
     if (!raw) { notes.push(`no route ${a.id} -> ${b.id}`); continue; }
@@ -260,7 +263,7 @@ function drawMap(file, tour, g, routes) {
     const c = palette[tour.stops.indexOf(a) % palette.length];
     for (let k = 1; k < pts.length; k++) line(pts[k - 1], pts[k], c);
   }
-  for (const s of tour.stops) { rect(X(s.x) - 4, Z(s.z) - 4, 9, 9, [255, 230, 0]);
+  for (const s of inside) { rect(X(s.x) - 4, Z(s.z) - 4, 9, 9, [255, 230, 0]);
     line(s, { x: s.x - Math.sin(s.yaw) * 0.6, z: s.z - Math.cos(s.yaw) * 0.6 }, [255, 230, 0]); }
   writePng(file, W, H, img);
 }

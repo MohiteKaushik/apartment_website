@@ -73,9 +73,10 @@ const WALL_GAP    = 0.35;  // stop this far from walls / furniture
 const RAY_HEIGHTS = [0.35, 1.0];   // knee and waist height above the floor
 
 /* ── controller (lives inside <Canvas>) ────────────────── */
-export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, onStopChange, onBack, onEnquire }) {
+export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersRef, portalRef, menuHoverRef, onStopChange, onBack, onEnquire }) {
   const { camera, gl } = useThree();
   const originRef = useRef(null);
+  const portal    = useRef(null);           // crossing the front door: { t0, to, dir }
 
   const stopIdx   = useRef(0);
   const yaw       = useRef(tour.stops[0].yaw);
@@ -131,24 +132,50 @@ export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, 
     // leash: allow moving back towards the room's spot, never further than `reach` from it
     if (dist(next, stop) > (tour.reach || 3) && dist(next, stop) > dist(p, stop)) return false;
 
-    const model = modelRef?.current;
-    if (!model) return true;
+    const targets = [modelRef?.current, extraBlockersRef?.current].filter(Boolean);
+    if (!targets.length) return true;
     const sgn = Math.sign(step);
     const dir = new THREE.Vector3(dx * sgn, 0, dz * sgn);
     ray.far = Math.abs(step) + WALL_GAP;
     for (const h of RAY_HEIGHTS) {
       ray.set(new THREE.Vector3(p.x, (tour.floorY || 0) + h, p.z), dir);
-      if (ray.intersectObject(model, true).length) return false;
+      if (ray.intersectObjects(targets, true).length) return false;
     }
     return true;
+  };
+
+  /* Teleport to a stop (used in the dark, mid-fade) */
+  const placeAt = (stop) => {
+    if (gl.xr.isPresenting && originRef.current) {
+      rotateOriginAroundHead(wrapAngle(stop.yaw - headYaw()));
+      const head = new THREE.Vector3(); gl.xr.getCamera().getWorldPosition(head);
+      originRef.current.position.x += stop.x - head.x;
+      originRef.current.position.z += stop.z - head.z;
+    } else {
+      pos.current = { x: stop.x, z: stop.z };
+      yaw.current = stop.yaw; pitch.current = 0;
+    }
   };
 
   const goTo = (i) => {
     const n = tour.stops.length;
     i = ((i % n) + n) % n;
+    if (portal.current) return;
     const fromStop = tour.stops[stopIdx.current];
     const stop  = tour.stops[i];
     const from  = headXZ();
+
+    /* Crossing the front door (lobby ↔ home): the door opens, the view
+       fades, we are placed on the other side, and it fades back in. */
+    if (!!fromStop.outside !== !!stop.outside) {
+      const entering = !!fromStop.outside;
+      portal.current = { t0: performance.now(), to: stop, entering, placed: false, done: false,
+                         from: { ...from }, yaw0: headYaw() };
+      if (entering && portalRef?.current) portalRef.current.door.target = 1;
+      stopIdx.current = i;
+      onStopRef.current?.(i);
+      return;
+    }
     const route = makeRoute(buildPath(from, fromStop, stop, tour));
     const dur   = Math.max(GLIDE_MIN, Math.min(GLIDE_MAX, route.length / GLIDE_SPEED));
     const yaw0  = headYaw();
@@ -246,6 +273,32 @@ export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, 
     const presenting = gl.xr.isPresenting;
     const dt = Math.min(delta, 0.1);
 
+    /* ── crossing the front door ── */
+    if (portal.current) {
+      const P = portal.current;
+      const t = (performance.now() - P.t0) / 1000;
+      const DOOR = P.entering ? 0.9 : 0.2;        // door swings open before we step in
+      const FADE = 0.45;
+      const fade = portalRef?.current?.fade;
+      if (t < DOOR + FADE) {
+        // a slow step towards the door while it opens, then darkness
+        if (!presenting) {
+          const k = smoothstep(Math.min(1, t / (DOOR + FADE)));
+          const fwd = P.entering ? 0.7 : -0.4;
+          pos.current = { x: P.from.x - Math.sin(P.yaw0) * fwd * k, z: P.from.z - Math.cos(P.yaw0) * fwd * k };
+        }
+        if (fade) fade(Math.max(0, Math.min(1, (t - DOOR) / FADE)));
+      } else if (!P.placed) {
+        placeAt(P.to);
+        if (portalRef?.current) portalRef.current.door.target = 0;
+        P.placed = true;
+      } else {
+        const k = Math.min(1, (t - DOOR - FADE) / 0.6);
+        if (fade) fade(1 - k);
+        if (k >= 1) portal.current = null;
+      }
+    }
+
     /* ── glide animation ── */
     if (anim.current) {
       const a = anim.current;
@@ -313,7 +366,7 @@ export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, 
 
     /* ── forward / back inside the room ── */
     const input = presenting ? vrMove : moveInput.current;
-    if (input !== 0 && !anim.current) {
+    if (input !== 0 && !anim.current && !portal.current) {
       const y = headYaw();
       const dx = -Math.sin(y), dz = -Math.cos(y);
       const step = input * MOVE_SPEED * dt;
@@ -331,12 +384,13 @@ export function TourController({ tour, apiRef, xrStore, modelRef, menuHoverRef, 
     /* ── which room are we in? (after walking or sliding on our own) ──
        Nearest stop wins, with a margin so the label doesn't flicker on a
        boundary. Checked a few times a second, never mid-glide. */
-    if (!anim.current && performance.now() - lastRoomCheck.current > 300) {
+    if (!anim.current && !portal.current && performance.now() - lastRoomCheck.current > 300) {
       lastRoomCheck.current = performance.now();
       const here = headXZ();
       const cur  = stopIdx.current;
       let best = cur, bestD = dist(here, tour.stops[cur]);
-      tour.stops.forEach((st, i) => { const d = dist(here, st); if (d < bestD - 0.8) { best = i; bestD = d; } });
+      const outside = !!tour.stops[cur].outside;
+      tour.stops.forEach((st, i) => { if (!!st.outside !== outside) return; const d = dist(here, st); if (d < bestD - 0.8) { best = i; bestD = d; } });
       if (best !== cur) apiRef?.current?.setIndex(best);
     }
 
@@ -391,7 +445,8 @@ function drawHud(ctx, W, H, tour, stopIndex, hovered, chips) {
   ctx.strokeStyle = 'rgba(196,154,60,0.6)'; ctx.lineWidth = 4; ctx.stroke();
   ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#c49a3c'; ctx.font = '600 24px sans-serif';
-  ctx.fillText(`${stopIndex + 1} / ${tour.stops.length}   ·   YOU ARE IN`, W / 2, 52);
+  const outside = !!tour.stops[stopIndex].outside;
+  ctx.fillText(outside ? 'AT THE FRONT DOOR   ·   A: OPEN AND ENTER' : `${stopIndex} / ${tour.stops.length - 1}   ·   YOU ARE IN`, W / 2, 52);
   ctx.fillStyle = '#ffffff'; ctx.font = '500 60px sans-serif';
   ctx.fillText(tour.stops[stopIndex].label, W / 2, 124);
   ctx.font = '500 26px sans-serif'; ctx.textBaseline = 'middle';
@@ -507,6 +562,7 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo, onMove }) {
   }, [stopIndex]);
 
   const stop = tour.stops[stopIndex];
+  const outside = !!stop.outside;
   const navBtn = (label, onClick, aria) => (
     <motion.button onClick={onClick} whileTap={{ scale: 0.9 }} aria-label={aria} style={roundBtn(38, true)}>
       {label}
@@ -520,6 +576,15 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo, onMove }) {
       style={{ left: 0, right: 0, pointerEvents: 'none' }}
       initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}>
 
+      {/* Outside: one clear action — open the door */}
+      {outside && (
+        <motion.button onClick={onNext} className="btn-gold rounded-full px-6 py-2.5 text-[11px] tracking-[0.25em] uppercase"
+          style={{ pointerEvents: 'auto', marginBottom: 8 }}
+          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2 }} whileTap={{ scale: 0.96 }}>
+          Open the door · Enter →
+        </motion.button>
+      )}
+
       {/* ‹  name  ›   ▲▼ */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, pointerEvents: 'auto', marginBottom: 6 }}>
         {navBtn('‹', onPrev, 'Previous room')}
@@ -528,7 +593,7 @@ export function TourBar({ tour, stopIndex, onPrev, onNext, onGoTo, onMove }) {
                       backdropFilter: 'blur(12px)' }}>
           <div style={{ color: '#fff', fontSize: 13, fontWeight: 500, lineHeight: 1.2 }}>{stop.label}</div>
           <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, letterSpacing: '0.18em', marginTop: 2 }}>
-            {stopIndex + 1} / {tour.stops.length} · DRAG TO LOOK
+            {outside ? 'IN FRONT OF THE DOOR · DRAG TO LOOK' : `${stopIndex} / ${tour.stops.length - 1} · DRAG TO LOOK`}
           </div>
         </div>
         {navBtn('›', onNext, 'Next room')}
