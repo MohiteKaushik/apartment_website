@@ -1,7 +1,7 @@
 {
   "files": {
-    "main.css": "/static/css/main.6f7840b6.css",
-    "main.js": "/static/js/main.9115de0f.js",
+    "main.css": "/static/css/main.965837d8.css",
+    "main.js": "/static/js/main.add0134e.js",
     "static/js/479.8fac6f5a.chunk.js": "/static/js/479.8fac6f5a.chunk.js",
     "static/js/453.da3a88e5.chunk.js": "/static/js/453.da3a88e5.chunk.js",
     "static/js/544.6757af14.chunk.js": "/static/js/544.6757af14.chunk.js",
@@ -9,14 +9,26 @@
     "static/js/708.5a4f5422.chunk.js": "/static/js/708.5a4f5422.chunk.js",
     "static/js/455.ef3dc8a2.chunk.js": "/static/js/455.ef3dc8a2.chunk.js",
     "static/js/127.bd5b1938.chunk.js": "/static/js/127.bd5b1938.chunk.js",
+    "static/media/cormorant-garamond-latin-500-italic.woff": "/static/media/cormorant-garamond-latin-500-italic.cd343d42c0286150355d.woff",
+    "static/media/cormorant-garamond-latin-400-italic.woff": "/static/media/cormorant-garamond-latin-400-italic.aae4b07bf7b4dbde9b4b.woff",
+    "static/media/cormorant-garamond-latin-500-italic.woff2": "/static/media/cormorant-garamond-latin-500-italic.f76399b72d8b2d6f7206.woff2",
+    "static/media/cormorant-garamond-latin-400-italic.woff2": "/static/media/cormorant-garamond-latin-400-italic.f56542fdae0ae762504e.woff2",
+    "static/media/poppins-latin-600-normal.woff": "/static/media/poppins-latin-600-normal.c0dcdaeaab8caa158cb9.woff",
+    "static/media/poppins-latin-400-normal.woff": "/static/media/poppins-latin-400-normal.1458587c0aa7cd06b82b.woff",
+    "static/media/poppins-latin-300-normal.woff": "/static/media/poppins-latin-300-normal.3555e897caceedb85c78.woff",
+    "static/media/poppins-latin-500-normal.woff": "/static/media/poppins-latin-500-normal.eb0d4c666d17c3ab1848.woff",
+    "static/media/poppins-latin-600-normal.woff2": "/static/media/poppins-latin-600-normal.91145014c0350c248ed2.woff2",
+    "static/media/poppins-latin-400-normal.woff2": "/static/media/poppins-latin-400-normal.405055dd680fa1dcdfa2.woff2",
+    "static/media/poppins-latin-300-normal.woff2": "/static/media/poppins-latin-300-normal.39576fe9df8a22cc1bcc.woff2",
+    "static/media/poppins-latin-500-normal.woff2": "/static/media/poppins-latin-500-normal.08491d3f7fe7ae88ef44.woff2",
     "index.html": "/index.html",
-    "main.6f7840b6.css.map": "/static/css/main.6f7840b6.css.map",
-    "main.9115de0f.js.map": "/static/js/main.9115de0f.js.map",
+    "main.965837d8.css.map": "/static/css/main.965837d8.css.map",
+    "main.add0134e.js.map": "/static/js/main.add0134e.js.map",
     "479.8fac6f5a.chunk.js.map": "/static/js/479.8fac6f5a.chunk.js.map",
     "453.da3a88e5.chunk.js.map": "/static/js/453.da3a88e5.chunk.js.map"
   },
   "entrypoints": [
-    "static/css/main.6f7840b6.css",
-    "static/js/main.9115de0f.js"
+    "static/css/main.965837d8.css",
+    "static/js/main.add0134e.js"
   ]
 }
