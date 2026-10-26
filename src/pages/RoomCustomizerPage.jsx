@@ -4,6 +4,8 @@ import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, Environment, Billboard, Text } from '@react-three/drei';
 import { createXRStore, XR, XROrigin } from '@react-three/xr';
 import * as THREE from 'three';
+import { surfaceFor, surfaceTexture } from '../components/building/surfaces';
+import BackButton from '../components/BackButton';
 
 /* ─── XR store ──────────────────────────────────────────── */
 const custXRStore = createXRStore({ emulate: false });
@@ -16,10 +18,6 @@ const CELL   = 30;    // px per grid cell
 const UNIT   = 0.6;   // metres per grid cell → grid = 14.4 m × 9.6 m
 
 const WALL_H = 2.7, WALL_T = 0.12, DOOR_H = 2.1, SILL = 0.9, WIN_TOP = 2.2, RAIL_H = 1.0, CUT_H = 1.1;
-const FLOOR_CLR = {
-  bedroom:'#a98258', living:'#b8905f', kitchen:'#9a9a94', bathroom:'#8fa6af',
-  balcony:'#7d8a74', study:'#a5804f', corridor:'#968c7e',
-};
 const WALL_CLR = '#e8e1d4';
 
 const ROOM_DEFS = [
@@ -192,7 +190,7 @@ function loadSavedLayout() {
 
 /* ─── 3D furniture shapes (box-geometry only) ───────────── */
 const Bx = ({ pos, size, clr, r=0.8, m=0.05 }) => (
-  <mesh position={pos}>
+  <mesh position={pos} castShadow receiveShadow>
     <boxGeometry args={size}/>
     <meshStandardMaterial color={clr} roughness={r} metalness={m}/>
   </mesh>
@@ -597,17 +595,22 @@ function fitInRoom(g, def, lx, lz, rot, auto) {
 const WallSegment = React.memo(function WallSegment({ seg, cutaway }) {
   const L = seg.len * UNIT;
   const box = (y0, y1, w = L + WALL_T, t = WALL_T, clr = WALL_CLR, x = 0) => (
-    <mesh position={[x, (y0 + y1) / 2, 0]}>
+    <mesh position={[x, (y0 + y1) / 2, 0]} castShadow receiveShadow>
       <boxGeometry args={[w, y1 - y0, t]}/>
-      <meshLambertMaterial color={clr}/>
+      <meshStandardMaterial color={clr} roughness={0.96} map={clr === WALL_CLR ? surfaceTexture('plaster') : null}/>
     </mesh>
   );
+  // skirting along the foot of every solid wall, and a darker cap on the cut edge
+  const trims = (y1) => (<>
+    {box(0, 0.08, L + WALL_T + 0.02, WALL_T + 0.03, '#5a5048')}
+    {cutaway && box(y1 - 0.015, y1, L + WALL_T, WALL_T, '#c9c0b2')}
+  </>);
   const frame = '#f3efe6', door = '#7a5a38';
   let body;
   if (cutaway) {
-    body = seg.kind === 'door' ? box(0, 0.03, L, WALL_T, door) : box(0, CUT_H);
+    body = seg.kind === 'door' ? box(0, 0.03, L, WALL_T, door) : (<>{box(0, CUT_H)}{trims(CUT_H)}</>);
   } else if (seg.kind === 'wall') {
-    body = box(0, WALL_H);
+    body = (<>{box(0, WALL_H)}{trims(WALL_H)}</>);
   } else if (seg.kind === 'door') {
     body = (<>
       {box(DOOR_H, WALL_H)}
@@ -745,7 +748,7 @@ function VRPanel({ open, tick, roomType, roomName, heldDef, onPick }) {
 }
 
 /* ─── Whole-house scene: walk inside, pick furniture, place it ─── */
-function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
+function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR, focusRoomId,
                       onPlace, onMoveCommit, onSelect, onRotateItem, onDeleteItem, onStartMove,
                       onPickDef, onCancel, onCurrentRoom }) {
   const house = useMemo(() => buildHouse(rooms), [rooms]);
@@ -763,12 +766,22 @@ function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
     head: new THREE.Vector3(), fwd: new THREE.Vector3(), rgt: new THREE.Vector3(),
   }), []);
 
+  /* Camera: glides in from high and far on arrival, and towards a room
+     when one is chosen (the whole house stays in view). */
+  const controls = useRef(null);
+  const camGoal  = useRef({ pos: new THREE.Vector3(), target: new THREE.Vector3(), t0: 0 });
   useEffect(() => {
     if (!house || inXR) return;
-    camera.position.set(0, house.span * 0.85, house.span * 0.7);
-    camera.lookAt(0, 0, 0);
+    const f = focusRoomId != null ? house.byId.get(focusRoomId) : null;
+    const span = f ? Math.max(f.w, f.d) * 2.2 + 3 : house.span;
+    const tx = f ? f.cx : 0, tz = f ? f.cz : 0;
+    camGoal.current = { pos: new THREE.Vector3(tx + span * 0.1, span * 0.8, tz + span * 0.75), target: new THREE.Vector3(tx, 0.2, tz), t0: performance.now() };
+    if (!camGoal.current.started) {
+      camera.position.set(span * 0.4, house.span * 1.6, house.span * 1.5);
+      camGoal.current.started = true;
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [house, inXR]);
+  }, [house, inXR, focusRoomId]);
 
   useEffect(() => custXRStore.subscribe(s => setPanel(p => {
     if (s.session) return p.open ? p : { open: true, tick: p.tick + 1 };
@@ -801,6 +814,17 @@ function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
 
   useFrame((_, delta) => {
     if (!house) return;
+
+    // ease the camera towards its goal (unless the visitor is dragging)
+    if (!inXR && controls.current && camGoal.current.t0) {
+      const age = (performance.now() - camGoal.current.t0) / 1000;
+      const k = 1 - Math.exp(-delta * (age < 2.5 ? 2.2 : 0));
+      if (k > 0) {
+        camera.position.lerp(camGoal.current.pos, k);
+        controls.current.target.lerp(camGoal.current.target, k);
+        controls.current.update();
+      }
+    }
 
     const lamp = house.byId.get(curRef.current ?? house.spawn.id);
     if (lamp && lightRef.current) lightRef.current.position.set(lamp.cx, WALL_H - 0.5, lamp.cz);
@@ -895,11 +919,32 @@ function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
 
   return (
     <>
-      <color attach="background" args={[inXR ? '#bcd6ee' : '#0c0a08']}/>
-      <ambientLight intensity={1.5}/>
-      <hemisphereLight args={['#dfeaff', '#8b7a62', 1.1]}/>
-      <directionalLight position={[6, 12, 4]} intensity={1.2} color="#fff4e0"/>
-      <pointLight ref={lightRef} intensity={10} distance={9} decay={1.6} color="#ffe6b8"/>
+      <color attach="background" args={[inXR ? '#bcd6ee' : '#0b0a09']}/>
+      {!inXR && <fog attach="fog" args={['#0b0a09', house.span * 1.6, house.span * 4]}/>}
+      <ambientLight intensity={0.35}/>
+      <hemisphereLight args={['#e4ecf7', '#5d5042', 0.6]}/>
+      <directionalLight position={[house.span * 0.5, house.span * 1.1, house.span * 0.35]} intensity={2.4} color="#fff1dc"
+        castShadow shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-bias={-0.0004} shadow-normalBias={0.02}
+        shadow-camera-left={-house.span} shadow-camera-right={house.span}
+        shadow-camera-top={house.span} shadow-camera-bottom={-house.span} shadow-camera-near={1} shadow-camera-far={house.span * 4}/>
+      <directionalLight position={[-house.span * 0.6, house.span * 0.5, -house.span * 0.4]} intensity={0.5} color="#bcd0ee"/>
+      <pointLight ref={lightRef} intensity={inXR ? 10 : 3} distance={9} decay={1.6} color="#ffe6b8"/>
+
+      {/* a presentation table under the house */}
+      {!inXR && (<>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.09, 0]} receiveShadow raycast={noRay}>
+          <circleGeometry args={[house.span * 1.6, 64]}/>
+          <meshStandardMaterial color="#1a1715" roughness={0.95}/>
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, 0]} receiveShadow raycast={noRay}>
+          <planeGeometry args={[house.span * 1.08, house.span * 1.08]}/>
+          <meshStandardMaterial color="#2a2522" roughness={0.9}/>
+        </mesh>
+        <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.039, 0]} raycast={noRay}>
+          <ringGeometry args={[house.span * 0.76, house.span * 0.765, 96]}/>
+          <meshBasicMaterial color="#c49a3c" transparent opacity={0.35}/>
+        </mesh>
+      </>)}
 
       <XROrigin ref={originRef} position={[house.spawn.x, 0, house.spawn.z]}/>
 
@@ -911,9 +956,9 @@ function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
 
       {house.rooms.map(g => (
         <group key={g.id} position={[g.cx, 0, g.cz]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} onPointerMove={floorMove(g)} onPointerDown={floorDown(g)}>
+          <mesh rotation={[-Math.PI / 2, 0, 0]} onPointerMove={floorMove(g)} onPointerDown={floorDown(g)} receiveShadow>
             <planeGeometry args={[g.w, g.d]}/>
-            <meshLambertMaterial color={FLOOR_CLR[g.type] || '#999'}/>
+            <meshStandardMaterial map={surfaceFor(g.type, g.w, g.d)} color={focusRoomId === g.id ? '#fff4dc' : '#ffffff'} roughness={0.85}/>
           </mesh>
           {!inXR && (
             <SafeText position={[0, 0.02, 0]} rotation={[-Math.PI / 2, 0, 0]} fontSize={0.34}
@@ -974,7 +1019,8 @@ function HouseScene({ rooms, furnitureMap, heldDef, moving, selectedUid, inXR,
           roomType={cur?.type} roomName={cur?.name} heldDef={heldDef} onPick={pickAndClose}/>
       )}
 
-      {!inXR && <OrbitControls enablePan minDistance={2} maxDistance={40} target={[0, 0, 0]}/>}
+      {!inXR && <OrbitControls ref={controls} enablePan enableDamping dampingFactor={0.08} minDistance={2} maxDistance={40}
+        maxPolarAngle={Math.PI * 0.47} target={[0, 0, 0]} onStart={() => { camGoal.current.t0 = 0; }}/>}
     </>
   );
 }
@@ -1043,7 +1089,7 @@ function FurnishScene({ room, furnitures, pendingDef, onPlace, onSelect, selecte
       {pendingDef&&<PlacementPreview def={pendingDef} posRef={previewPosRef}/>}
 
       <OrbitControls enablePan minDistance={1} maxDistance={14} target={[0,0.5,0]}/>
-      <Environment preset="apartment"/>
+      <Environment files="/assets/env/studio.hdr" environmentIntensity={0.5}/>
     </>
   );
 }
@@ -1243,7 +1289,7 @@ export default function RoomCustomizerPage({ onBack }) {
   const [selectedUid,  setSelectedUid]  = useState(null);
   const [fCat,         setFCat]         = useState('all');
   const [inXR,         setInXR]         = useState(false);
-  const [viewMode,     setViewMode]     = useState('room');
+  const [viewMode,     setViewMode]     = useState('house');   // the whole house, always; rooms are focused, not isolated
   const [moveUid,      setMoveUid]      = useState(null);
   const [toast,        setToast]        = useState(null);
   const [hasSaved,     setHasSaved]     = useState(()=>!!localStorage.getItem('vayam_room_layout'));
@@ -1398,19 +1444,17 @@ export default function RoomCustomizerPage({ onBack }) {
       {/* Header */}
       <div className="flex-shrink-0 flex items-center justify-between px-5 sm:px-7 py-3 border-b"
         style={{borderColor:'rgba(255,255,255,0.07)',background:'rgba(0,0,0,0.86)',backdropFilter:'blur(20px)'}}>
-        <div className="flex items-center gap-3">
-          <motion.button
-            onClick={phase==='furnish'?()=>{setPhase('layout');setPendingDef(null);}:onBack}
-            className="text-white/40 hover:text-[#c49a3c] transition-colors"
-            style={{fontSize:20}} whileHover={{x:-3}} whileTap={{scale:0.9}}>←</motion.button>
+        <div className="flex items-center gap-3 sm:gap-4">
+          <BackButton onClick={phase==='furnish'?()=>{setPhase('layout');setPendingDef(null);}:onBack}
+            label={phase==='furnish'?'Layout':'Towers'} compact />
           <div>
-            <p className="text-[#c49a3c] text-[9px] tracking-[0.4em] uppercase">Room Customizer</p>
-            <h2 className="text-white font-light text-sm sm:text-base tracking-wide">
+            <p className="text-gold-grad text-[9px] tracking-[0.4em] uppercase">Room Customizer</p>
+            <h2 className="text-white text-sm sm:text-base tracking-wide" style={{fontWeight:500}}>
               {phase==='layout'
-                ? 'Design Your Floor Plan'
+                ? 'Design your floor plan'
                 : activeRoom
-                  ? `Furnish · ${activeRoom.type.icon} ${activeRoom.type.name} (${(activeRoom.w*UNIT).toFixed(1)} m × ${(activeRoom.h*UNIT).toFixed(1)} m)`
-                  : 'Furnish Rooms'}
+                  ? `Furnishing · ${activeRoom.type.name} (${(activeRoom.w*UNIT).toFixed(1)} m × ${(activeRoom.h*UNIT).toFixed(1)} m)`
+                  : 'Furnish your home'}
             </h2>
           </div>
         </div>
@@ -1428,31 +1472,17 @@ export default function RoomCustomizerPage({ onBack }) {
             ))}
           </div>
 
-          {phase==='furnish'&&!inXR&&(
-            <div style={{display:'flex',borderRadius:20,overflow:'hidden',border:'1px solid rgba(255,255,255,0.14)'}}>
-              {[['room','Room'],['house','Whole house']].map(([m,lbl])=>(
-                <button key={m} onClick={()=>{setViewMode(m);cancelAction();}}
-                  style={{
-                    padding:'6px 12px',fontSize:10,letterSpacing:'0.12em',textTransform:'uppercase',cursor:'pointer',
-                    background:viewMode===m?'rgba(196,154,60,0.22)':'rgba(255,255,255,0.04)',
-                    color:viewMode===m?'#c49a3c':'rgba(255,255,255,0.5)',border:'none',
-                  }}>{lbl}</button>
-              ))}
-            </div>
-          )}
 
           {phase==='furnish'&&(
             <motion.button
               onClick={inXR?()=>custXRStore.getState().session?.end():handleEnterVR}
               whileHover={{scale:1.04}} whileTap={{scale:0.94}}
+              className={inXR?'btn-gold':'btn-ghost'}
               style={{
-                padding:'6px 14px',borderRadius:20,fontSize:10,letterSpacing:'0.14em',
+                padding:'7px 16px',borderRadius:20,fontSize:10,letterSpacing:'0.14em',
                 textTransform:'uppercase',fontWeight:500,cursor:'pointer',
-                background:inXR?'rgba(196,154,60,0.22)':'rgba(255,255,255,0.06)',
-                border:`1px solid ${inXR?'rgba(196,154,60,0.6)':'rgba(255,255,255,0.14)'}`,
-                color:inXR?'#c49a3c':'rgba(255,255,255,0.55)',
               }}>
-              {inXR?'Exit VR':'🥽 Enter VR'}
+              {inXR?'Exit VR':'Enter VR'}
             </motion.button>
           )}
         </div>
@@ -1574,14 +1604,15 @@ export default function RoomCustomizerPage({ onBack }) {
             {/* 3D canvas */}
             <div className="flex-1 relative">
               {(viewMode==='house'||activeRoom)?(
-                <Canvas shadows={viewMode!=='house'} camera={{fov:viewMode==='house'?50:55,position:[5,5,7]}}
+                <Canvas shadows camera={{fov:viewMode==='house'?46:55,position:[5,5,7]}}
+                  gl={{toneMappingExposure:1.05}}
                   dpr={Math.min(window.devicePixelRatio,1.5)}>
                   <XR store={custXRStore}>
                     <Suspense fallback={null}>
                       {viewMode==='house' ? (
                         <HouseScene
                           rooms={rooms} furnitureMap={furnitureMap}
-                          heldDef={heldDef} moving={movingItem} selectedUid={selectedUid} inXR={inXR}
+                          heldDef={heldDef} moving={movingItem} selectedUid={selectedUid} inXR={inXR} focusRoomId={activeRoomId}
                           onPlace={handlePlaceAt} onMoveCommit={handleMoveCommit}
                           onSelect={setSelectedUid} onRotateItem={rotateItem}
                           onDeleteItem={deleteItem} onStartMove={handleStartMove}
