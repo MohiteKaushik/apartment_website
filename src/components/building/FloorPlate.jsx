@@ -4,6 +4,8 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { TOWERS, footprint, floorBase } from '../../data/towerGeometry';
 import FLATS from '../../data/flats';
+import { planLayout, wallSegments } from './planLayout';
+import { drawPlan } from './planCanvas';
 
 /* ── The floor plate ─────────────────────────────────────
    A 3D plan of one storey, drawn at the real height and size of the
@@ -54,72 +56,18 @@ export function unitWorld(towerId, floor, flatId) {
     : [cx + r.z, floorBase(floor), cz - r.x];
 }
 
-/* ── The plan of one home, drawn on a canvas ────────────
-   Lines for the rooms and simple shapes for the furniture, used as the
-   floor texture of that home. `rooms` bedrooms sit along the outer wall;
-   the living band with sofa, dining and kitchen runs along the corridor.
-   Drawn with the corridor at the BOTTOM of the canvas. */
+/* The plan of one home as a texture (see planCanvas.js), one per type. */
 const planCache = new Map();
 function planTexture(type, aspect) {
   const key = `${type}:${aspect.toFixed(2)}`;
   if (planCache.has(key)) return planCache.get(key);
   if (typeof document === 'undefined') return null;
-  const Wd = 1024, Hd = Math.round(1024 / aspect);
-  const c = document.createElement('canvas'); c.width = Wd; c.height = Hd;
-  const g = c.getContext('2d');
-  const rooms = type.startsWith('2') ? 2 : 3;
-  const line = '#6b5a45', fill = '#efe8dc', wood = '#cfae84', tile = '#dcd6cc';
-  const lw = Math.max(3, Wd / 260);
-
-  // floors: wood in the rooms, tile in the living band
-  g.fillStyle = wood; g.fillRect(0, 0, Wd, Hd);
-  for (let i = 0; i < Hd; i += Hd / 18) { g.fillStyle = 'rgba(0,0,0,0.045)'; g.fillRect(0, i, Wd, Hd / 36); }
-  const livY = Hd * 0.54;                       // top of the living band
-  g.fillStyle = tile; g.fillRect(0, livY, Wd, Hd - livY);
-  g.strokeStyle = 'rgba(0,0,0,0.07)'; g.lineWidth = 1;
-  for (let x = 0; x < Wd; x += Wd / 16) { g.beginPath(); g.moveTo(x, livY); g.lineTo(x, Hd); g.stroke(); }
-  for (let y = livY; y < Hd; y += Wd / 16) { g.beginPath(); g.moveTo(0, y); g.lineTo(Wd, y); g.stroke(); }
-
-  const rect = (x, y, w, h, f = fill) => { g.fillStyle = f; g.fillRect(x, y, w, h); g.strokeStyle = line; g.lineWidth = lw * 0.7; g.strokeRect(x, y, w, h); };
-  const door = (x, y, r, a0, a1) => { g.strokeStyle = line; g.lineWidth = lw * 0.6; g.beginPath(); g.arc(x, y, r, a0, a1); g.stroke(); };
-
-  // bedrooms along the top
-  const rw = Wd / rooms, bedH = livY;
-  for (let i = 0; i < rooms; i++) {
-    const x0 = i * rw;
-    // bed against the outer wall
-    const bw = rw * 0.42, bh = bedH * 0.46;
-    rect(x0 + rw * 0.12, bedH * 0.08, bw, bh, '#f1ece3');
-    rect(x0 + rw * 0.12, bedH * 0.08, bw, bh * 0.2, '#e0d8ca');       // pillows
-    g.fillStyle = '#9bb3c5'; g.fillRect(x0 + rw * 0.12 + lw, bedH * 0.08 + bh * 0.22, bw - 2 * lw, bh * 0.72);  // cover
-    // wardrobe
-    rect(x0 + rw * 0.62, bedH * 0.08, rw * 0.3, bedH * 0.12, '#cfc6b8');
-    // bathroom pocket by the corridor side
-    g.fillStyle = '#d7dde2'; g.fillRect(x0 + rw * 0.62, bedH * 0.6, rw * 0.3, bedH * 0.36);
-    g.strokeStyle = line; g.lineWidth = lw * 0.7; g.strokeRect(x0 + rw * 0.62, bedH * 0.6, rw * 0.3, bedH * 0.36);
-    g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(x0 + rw * 0.72, bedH * 0.8, rw * 0.045, bedH * 0.07, 0, 0, Math.PI * 2); g.fill(); g.stroke();
-    // door from the living band
-    door(x0 + rw * 0.4, livY, rw * 0.14, Math.PI, Math.PI * 1.5);
-    if (i > 0) { g.strokeStyle = line; g.lineWidth = lw; g.beginPath(); g.moveTo(x0, 0); g.lineTo(x0, livY); g.stroke(); }
-  }
-  // living / bedrooms wall
-  g.strokeStyle = line; g.lineWidth = lw; g.beginPath(); g.moveTo(0, livY); g.lineTo(Wd, livY); g.stroke();
-
-  // living band: kitchen counter (left), dining (middle), sofa + tv (right)
-  const lh = Hd - livY;
-  rect(lw, livY + lh * 0.08, Wd * 0.2, lh * 0.16, '#cfc6b8');                      // counter
-  rect(lw, livY + lh * 0.08, Wd * 0.05, lh * 0.7, '#cfc6b8');
-  g.fillStyle = '#ffffff'; g.beginPath(); g.ellipse(Wd * 0.4, livY + lh * 0.5, Wd * 0.055, lh * 0.22, 0, 0, Math.PI * 2); g.fill(); g.strokeStyle = line; g.lineWidth = lw * 0.7; g.stroke();   // dining table
-  for (let k = 0; k < 6; k++) { const a = (k / 6) * Math.PI * 2; g.fillStyle = '#e4ddd0'; g.beginPath(); g.arc(Wd * 0.4 + Math.cos(a) * Wd * 0.08, livY + lh * 0.5 + Math.sin(a) * lh * 0.32, Wd * 0.012, 0, Math.PI * 2); g.fill(); g.stroke(); }
-  rect(Wd * 0.62, livY + lh * 0.3, Wd * 0.26, lh * 0.2, '#b9b3ab');              // sofa
-  rect(Wd * 0.62, livY + lh * 0.3, Wd * 0.05, lh * 0.5, '#b9b3ab');
-  rect(Wd * 0.64, livY + lh * 0.82, Wd * 0.22, lh * 0.06, '#8c8780');             // tv unit
-  // front door from the corridor
-  door(Wd * 0.5, Hd, Wd * 0.06, Math.PI, Math.PI * 2);
-
+  const c = document.createElement('canvas');
+  c.width = 1536; c.height = Math.round(1536 / aspect);
+  drawPlan(c, type);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
-  t.anisotropy = 4;
+  t.anisotropy = 8;
   planCache.set(key, t);
   return t;
 }
@@ -159,14 +107,11 @@ function Unit({ flat, rect, hot, dimmed, onHover, onSelect }) {
   });
 
   const dir = top ? 1 : -1;                     // +1: outer wall is at +z
-  const outer = z + (dir * d) / 2;
-  const living = d * 0.46;
-  const bedD = d - living;
-  const bedZ = outer - (dir * bedD) / 2;
-  const rooms = flat.type.startsWith('2') ? 2 : 3;
-  const roomW = w / rooms;
+  const segs = useMemo(() => wallSegments(planLayout(flat.type)).filter((w) => w.kind !== 'outer'), [flat.type]);
+  // plan coordinates → plate coordinates
+  const px = (u) => x - w / 2 + u * w;
+  const pz = (v) => z + dir * d * (0.5 - v);
   const wallRef = (i) => (m) => { wallMats.current[i] = m; };
-  let wi = 0;
 
   return (
     <group
@@ -177,13 +122,16 @@ function Unit({ flat, rect, hot, dimmed, onHover, onSelect }) {
         <boxGeometry args={[w - WALL_T, 0.024, d - WALL_T]} />
         <meshStandardMaterial ref={floorMat} map={tex} color={WOOD_BASE} roughness={0.8} emissive={GOLD} emissiveIntensity={0} />
       </mesh>
-      {/* low walls along the plan's lines: living / bedrooms and between bedrooms */}
-      <Box x={x} z={outer - dir * bedD} w={w - WALL_T} h={INNER_H} d={WALL_T * 0.8}
-        mat={<meshStandardMaterial ref={wallRef(wi++)} color={WALL} roughness={0.9} />} />
-      {Array.from({ length: rooms - 1 }, (_, i) => (
-        <Box key={i} x={x - w / 2 + roomW * (i + 1)} z={bedZ} w={WALL_T * 0.8} h={INNER_H} d={bedD}
-          mat={<meshStandardMaterial ref={wallRef(wi++)} color={WALL} roughness={0.9} />} />
-      ))}
+      {/* low walls along the plan's lines, with the door openings left out */}
+      {segs.map((sg, i) => {
+        const horizontal = sg.v0 === sg.v1;
+        const cx = (px(sg.u0) + px(sg.u1)) / 2, cz = (pz(sg.v0) + pz(sg.v1)) / 2;
+        const len = horizontal ? Math.abs(px(sg.u1) - px(sg.u0)) : Math.abs(pz(sg.v1) - pz(sg.v0));
+        return (
+          <Box key={i} x={cx} z={cz} w={horizontal ? len + WALL_T * 0.8 : WALL_T * 0.8} h={INNER_H} d={horizontal ? WALL_T * 0.8 : len + WALL_T * 0.8}
+            mat={<meshStandardMaterial ref={wallRef(i)} color={WALL} roughness={0.9} />} />
+        );
+      })}
 
       <Html position={[x, 0.26, z]} center zIndexRange={[12, 0]}
         style={{ pointerEvents: 'none', whiteSpace: 'nowrap', textAlign: 'center',
@@ -193,7 +141,7 @@ function Unit({ flat, rect, hot, dimmed, onHover, onSelect }) {
                       border: `1px solid ${hot ? 'rgba(196,154,60,0.85)' : 'rgba(255,255,255,0.14)'}`,
                       backdropFilter: 'blur(6px)', transition: 'background 0.25s, border-color 0.25s, transform 0.25s',
                       transform: hot ? 'scale(1.12)' : 'scale(1)' }}>
-          <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 15, lineHeight: 1, color: hot ? '#e6cf93' : '#fff' }}>
+          <span style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em', fontSize: 15, lineHeight: 1, color: hot ? '#e6cf93' : '#fff' }}>
             {flat.unit}
           </span>
           <span style={{ fontSize: 8.5, letterSpacing: '0.2em', textTransform: 'uppercase', color: hot ? '#c49a3c' : 'rgba(255,255,255,0.7)' }}>
