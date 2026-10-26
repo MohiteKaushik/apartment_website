@@ -37,7 +37,6 @@ const TOURS = {
     eyeHeight:   1.6,
     reach:       3.0,
     door:        { x: 3.75, z: -2.95 },
-    lowWalls:    true,
     stops: [
       CORRIDOR_STOP,
       { id: 'entrance',  label: 'Entrance',       x:  4.5, z: -1.2, yaw:  2.356 },

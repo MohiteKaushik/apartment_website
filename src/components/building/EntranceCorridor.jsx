@@ -78,8 +78,8 @@ export default function EntranceCorridor({ unitLabel, unitNumber, doorRef, lowWa
       {/* warm light beyond the door, seen as it opens */}
       <mesh position={[0, dh / 2, -0.6]} material={mats.beyond}><planeGeometry args={[DOOR_W * 1.6, dh * 1.2]} /></mesh>
       {/* number plate beside the door */}
-      <mesh position={[DOOR_W / 2 + 0.42, 1.55, 0.012]} material={mats.brass}><boxGeometry args={[0.3, 0.14, 0.012]} /></mesh>
-      <Html position={[DOOR_W / 2 + 0.42, 1.55, 0.03]} center transform distanceFactor={1.6} zIndexRange={[12, 0]}
+      <mesh position={[DOOR_W / 2 + 0.3, 1.55, 0.012]} material={mats.brass}><boxGeometry args={[0.26, 0.13, 0.012]} /></mesh>
+      <Html position={[DOOR_W / 2 + 0.3, 1.55, 0.03]} center transform distanceFactor={1.5} zIndexRange={[12, 0]}
         style={{ pointerEvents: 'none', whiteSpace: 'nowrap', textAlign: 'center' }}>
         <div style={{ color: '#1b1409', fontFamily: 'Poppins, sans-serif', fontWeight: 600, fontSize: 22, letterSpacing: '0.1em', lineHeight: 1 }}>{unitNumber}</div>
         <div style={{ color: '#3d2f14', fontFamily: 'Poppins, sans-serif', fontWeight: 500, fontSize: 9, letterSpacing: '0.3em', marginTop: 3 }}>{unitLabel}</div>

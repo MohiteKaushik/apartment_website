@@ -4,7 +4,7 @@ import BackButton from './BackButton';
 
 const STEPS = ['Intro', 'Tower', 'Floor', 'Unit', 'Floor Plan', 'Walkthrough'];
 
-export default function NavBar({ step, onBack, backLabel, transparent = false }) {
+export default function NavBar({ step, onBack, backLabel, transparent = false, action = null }) {
   return (
     <motion.nav
       className={`relative flex items-center justify-between px-3 sm:px-8 py-2.5 sm:py-3.5 z-10 ${transparent ? '' : 'border-b border-white/6'}`}
@@ -61,14 +61,16 @@ export default function NavBar({ step, onBack, backLabel, transparent = false })
         })}
       </div>
 
-      {/* Mobile: compact current step name */}
-      <span className="flex sm:hidden text-gold-grad text-[11px] tracking-[0.2em] uppercase">
-        {STEPS[step - 1] || ''}
-      </span>
-
-      {/* Right: desktop only */}
-      <div className="hidden sm:flex w-40 justify-end">
-        <span className="text-white/20 text-[10px] tracking-[0.25em] uppercase">Luxury Residences</span>
+      {/* Right: the page's action (e.g. Enquire) when it has one, else the
+          current step on phones and the tagline on wider screens */}
+      <div className="flex items-center justify-end gap-3 sm:w-48">
+        {action}
+        {!action && (
+          <span className="flex sm:hidden text-gold-grad text-[11px] tracking-[0.2em] uppercase">{STEPS[step - 1] || ''}</span>
+        )}
+        {!action && (
+          <span className="hidden sm:inline text-white/20 text-[10px] tracking-[0.25em] uppercase">Luxury Residences</span>
+        )}
       </div>
     </motion.nav>
   );

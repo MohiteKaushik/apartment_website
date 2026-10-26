@@ -561,7 +561,14 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
     >
       <PageBackground src="/assets/images/bg_walkthrough.png" intensity="heavy" />
       <div style={{ position: 'relative', zIndex: 1, display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
-        <NavBar step={6} onBack={onBack} />
+        <NavBar step={6} onBack={onBack}
+          action={onEnquire && (
+            <motion.button onClick={onEnquire}
+              className="btn-gold px-4 sm:px-5 py-2 sm:py-2.5 text-[10px] sm:text-xs tracking-[0.15em] uppercase rounded-full whitespace-nowrap"
+              whileTap={{ scale: 0.95 }} initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
+              Enquire Now →
+            </motion.button>
+          )} />
 
         {/* Mode toggle */}
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-20">
@@ -772,17 +779,6 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
             </p>
           </motion.div>
 
-          {/* Enquire button */}
-          {onEnquire && (
-            <motion.button
-              className="btn-gold absolute top-4 right-4 z-10 px-3 sm:px-5 py-2 sm:py-2.5 text-xs tracking-[0.15em] uppercase rounded-full"
-              whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}
-              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1 }}
-              onClick={onEnquire}
-            >
-              Enquire Now →
-            </motion.button>
-          )}
         </div>
       </div>
     </motion.div>

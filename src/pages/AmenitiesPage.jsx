@@ -42,11 +42,13 @@ const AMENITIES = [
   { id: 'gym',    category: 'health', icon: '🏋', name: 'Clubhouse Gym',
     desc: 'Fully equipped fitness centers with weights, cardio machines, and separate yoga/meditation decks.',
     image: '/assets/images/amenities/amenity_gym.jpg',
-    model: '/assets/Amenities/gym.glb', modelLabel: 'Fitness Center', dollhouse: true },
+    model: '/assets/Amenities/gym.glb', modelLabel: 'Fitness Center', dollhouse: true, lightScale: 0.55 },
   { id: 'pool',   category: 'health', icon: '🏊', name: 'Swimming Pools',
     desc: 'Separate pools with luxury complexes featuring temperature-controlled indoor options.',
     image: '/assets/images/amenities/amenity_pool.jpg',
-    model: '/assets/Amenities/pool.glb', modelLabel: 'Swimming Pool', dollhouse: true },
+    model: '/assets/Amenities/pool.glb', modelLabel: 'Swimming Pool',
+    /* start on the deck at one end, looking down the pool (fractions of the model's size) */
+    inside: { pos: [0, 0.2, 0.42], yaw: 0 } },
   { id: 'sports', category: 'health', icon: '🏸', name: 'Sports Courts',
     desc: 'Multi-purpose courts for badminton (often indoor), tennis, and basketball.',
     image: '/assets/images/amenities/amenity_sports.jpg',
@@ -88,7 +90,7 @@ const COUNT_3D  = AMENITIES.filter(a => a.model).length;
    Uses useFrame (not useEffect) so that camera + OrbitControls
    refs are guaranteed to be live when we call update().
 ───────────────────────────────────────────────────────── */
-function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, roofOff = true }) {
+function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, roofOff = true, inside = null }) {
   const { scene } = useGLTF(modelPath);
   const groupRef   = useRef();
   const { camera, gl } = useThree();
@@ -135,7 +137,16 @@ function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, r
     // Position camera closer — roughly 1x model size away; from higher up
     // for a dollhouse, whose roof is cut off a little above the furniture
     const dist = maxDim * (dollhouse ? 1.15 : 1.0);
-    if (dollhouse) {
+    const target = new THREE.Vector3(0, 0, 0);
+    if (inside) {
+      // standing inside: the orbit target sits just ahead, so dragging looks around
+      const [fx, fy, fz] = inside.pos;
+      camera.position.set(fx * size.x, fy * size.y, fz * size.z);
+      const ahead = maxDim * 0.06;
+      target.set(camera.position.x - Math.sin(inside.yaw) * ahead, camera.position.y - ahead * 0.12, camera.position.z - Math.cos(inside.yaw) * ahead);
+      orbitRef.current.minDistance = maxDim * 0.03;
+      orbitRef.current.maxDistance = maxDim * 0.12;
+    } else if (dollhouse) {
       cutRef.current = { on: size.y * 0.5 - size.y * 0.42, off: size.y * 0.5 + 1 };
       planeRef.current.constant = cutRef.current.off;
       camera.position.set(dist * 0.5, dist * 0.62, dist * 0.5);
@@ -145,7 +156,7 @@ function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, r
     camera.updateProjectionMatrix();
 
     // Tell OrbitControls about the new camera position (critical — avoids black screen)
-    orbitRef.current.target.set(0, 0, 0);
+    orbitRef.current.target.copy(target);
     orbitRef.current.update();
 
     doneRef.current = true;
@@ -160,7 +171,7 @@ function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, r
 }
 
 /* Orbit controls that step aside when VR session is active */
-function AdaptiveOrbitControls({ orbitRef }) {
+function AdaptiveOrbitControls({ orbitRef, autoRotate = true }) {
   const [vrActive, setVrActive] = useState(false);
   useEffect(() => amenityXRStore.subscribe(s => setVrActive(!!s.session)), []);
   if (vrActive) return null;
@@ -169,7 +180,7 @@ function AdaptiveOrbitControls({ orbitRef }) {
       ref={orbitRef}
       enableDamping
       dampingFactor={0.07}
-      autoRotate
+      autoRotate={autoRotate}
       autoRotateSpeed={0.45}
       enablePan={false}
       minDistance={0.3}
@@ -247,6 +258,7 @@ function AmenityViewer({ amenity, onClose }) {
   const [isVRP, setIsVRP]             = useState(false);
   const [roofOff, setRoofOff]         = useState(true);
   const orbitRef = useRef();
+  const lightScale = amenity.lightScale ?? 1;
 
   useEffect(() => {
     return amenityXRStore.subscribe(s => { setIsVRP(!!s.session); if (s.session) setRoofOff(false); });
@@ -303,23 +315,24 @@ function AmenityViewer({ amenity, onClose }) {
           <XR store={amenityXRStore}>
             {/* Soft, low-key lighting: the models carry their own baked light,
                 so a little fill and a gentle environment is all they need */}
-            <ambientLight intensity={0.28} />
-            <hemisphereLight args={['#cfd8e6', '#4a4238', 0.35]} />
-            <directionalLight position={[10, 18, 10]} intensity={0.75} color="#fff1dc" castShadow={false} />
-            <directionalLight position={[-8, 8, -8]}  intensity={0.22} color="#aac4ff" />
+            <ambientLight intensity={0.28 * lightScale} />
+            <hemisphereLight args={['#cfd8e6', '#4a4238', 0.35 * lightScale]} />
+            <directionalLight position={[10, 18, 10]} intensity={0.75 * lightScale} color="#fff1dc" castShadow={false} />
+            <directionalLight position={[-8, 8, -8]}  intensity={0.22 * lightScale} color="#aac4ff" />
 
             <Suspense fallback={null}>
               <AmenityModelScene
                 modelPath={amenity.model}
                 orbitRef={orbitRef}
                 dollhouse={!!amenity.dollhouse}
+                inside={amenity.inside || null}
                 roofOff={roofOff}
                 onLoaded={() => setLoading(false)}
               />
-              <Environment files="/assets/env/studio.hdr" environmentIntensity={0.45} />
+              <Environment files="/assets/env/studio.hdr" environmentIntensity={0.45 * lightScale} />
             </Suspense>
 
-            <AdaptiveOrbitControls orbitRef={orbitRef} />
+            <AdaptiveOrbitControls orbitRef={orbitRef} autoRotate={!amenity.inside} />
             <AmenityVRMove speed={3} />
           </XR>
         </Canvas>
@@ -357,7 +370,7 @@ function AmenityViewer({ amenity, onClose }) {
           <motion.div className="absolute bottom-6 right-5 z-20 text-right"
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8 }}>
             <p className="text-white/18 text-[10px] tracking-wider">Drag · Scroll · Pinch</p>
-            <p className="text-white/10 text-[9px] tracking-widest uppercase mt-0.5">Orbit to explore</p>
+            <p className="text-white/10 text-[9px] tracking-widest uppercase mt-0.5">{amenity.inside ? 'Look around' : 'Orbit to explore'}</p>
           </motion.div>
         )}
 
