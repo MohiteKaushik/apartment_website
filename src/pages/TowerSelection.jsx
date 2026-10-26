@@ -211,9 +211,9 @@ export default function TowerSelection({
               </motion.p>
               <motion.h1 {...rise(D.title, 24)}
                 className="mt-2 sm:mt-3 text-white font-light leading-[1.02] text-[34px] sm:text-[56px] lg:text-[64px]"
-                style={{ fontFamily: "'Playfair Display', serif", textShadow: '0 2px 30px rgba(0,0,0,0.45)' }}>
+                style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em', textShadow: '0 2px 30px rgba(0,0,0,0.45)' }}>
                 Choose your<br />
-                <span className="italic text-[#e6cf93]">residence</span>
+                <span className="accent">residence</span>
               </motion.h1>
               <motion.p {...rise(D.sub, 14)}
                 className="mt-3 sm:mt-5 text-white/60 text-[12.5px] sm:text-[15px] font-light leading-relaxed max-w-[380px]">
@@ -267,11 +267,11 @@ export default function TowerSelection({
                           Tower {tower.id} <span className="text-white/25 ml-1 tracking-normal normal-case">{tower.id === 'A' ? '· left' : '· right'}</span>
                         </p>
                         <h3 className="text-white text-[17px] sm:text-[20px] font-light mt-0.5 leading-tight"
-                            style={{ fontFamily: "'Playfair Display', serif" }}>{tower.name}</h3>
+                            style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>{tower.name}</h3>
                         <p className="text-white/45 text-[11px] sm:text-xs mt-0.5">{tower.tagline} · {tower.units} residences</p>
                       </div>
                       <span className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-sm transition-all duration-300
-                        ${hot ? 'bg-[#c49a3c] text-black' : 'border border-white/20 text-white/70'}`}>→</span>
+                        ${hot ? 'btn-gold' : 'border border-white/20 text-white/70'}`}>→</span>
                     </div>
                   </motion.button>
                 );

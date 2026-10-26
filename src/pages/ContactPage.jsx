@@ -77,8 +77,8 @@ export default function ContactPage({ selection, onBack }) {
               transition={{ delay: 0.2 }}
             >
               <div>
-                <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">Get In Touch</p>
-                <h2 className="text-white text-4xl font-light" style={{ fontFamily: "'Playfair Display', serif" }}>
+                <p className="text-gold-grad text-xs tracking-[0.35em] uppercase mb-2">Get In Touch</p>
+                <h2 className="text-white text-4xl font-light" style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>
                   Enquire Now
                 </h2>
                 <div className="w-10 h-px bg-[#c49a3c]/60 mt-3" />
@@ -90,16 +90,17 @@ export default function ContactPage({ selection, onBack }) {
 
               {/* Contact cards */}
               {[
-                { icon: '✉', label: 'Email Us', value: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}` },
-                { icon: '📞', label: 'Call Us', value: CONTACT_PHONE, href: `tel:${CONTACT_PHONE}` },
+                { icon: '@', label: 'Email Us', value: CONTACT_EMAIL, href: `mailto:${CONTACT_EMAIL}` },
+                { icon: '☏', label: 'Call Us', value: CONTACT_PHONE, href: `tel:${CONTACT_PHONE}` },
               ].map(item => (
                 <motion.a
                   key={item.label}
                   href={item.href}
-                  className="glass-dark border border-white/8 rounded-xl p-4 flex items-center gap-4 hover:border-[#c49a3c]/50 transition-colors duration-300 group"
-                  whileHover={{ scale: 1.02 }}
+                  className="panel-grad rounded-xl p-4 flex items-center gap-4 group"
+                  whileHover={{ scale: 1.02, x: 4 }}
                 >
-                  <span className="text-2xl">{item.icon}</span>
+                  <span className="w-10 h-10 rounded-full flex items-center justify-center text-base"
+                    style={{ background: 'linear-gradient(135deg, rgba(230,207,147,0.18), rgba(196,154,60,0.06))', border: '1px solid rgba(196,154,60,0.35)' }}>{item.icon}</span>
                   <div>
                     <p className="text-white/35 text-xs uppercase tracking-wider">{item.label}</p>
                     <p className="text-white text-sm font-light group-hover:text-[#c49a3c] transition-colors">
@@ -111,18 +112,18 @@ export default function ContactPage({ selection, onBack }) {
 
               {/* Selection summary */}
               {(selection?.tower || selection?.flat) && (
-                <div className="glass-dark rounded-xl p-4 border border-[#c49a3c]/20">
-                  <p className="text-[#c49a3c] text-xs tracking-widest uppercase mb-2">Your Selection</p>
-                  {selection.tower && <p className="text-white/60 text-sm">🏗 {selection.tower.name}</p>}
-                  {selection.floor  && <p className="text-white/60 text-sm">📐 Floor {selection.floor}</p>}
-                  {selection.flat   && <p className="text-white/60 text-sm">🏠 Unit {selection.flat.unit} · {selection.flat.type}</p>}
-                </div>
+                <motion.div className="panel-grad rounded-xl p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 }}>
+                  <p className="text-gold-grad text-xs tracking-widest uppercase mb-2">Your Selection</p>
+                  {selection.tower && <p className="text-white/70 text-sm">{selection.tower.name}</p>}
+                  {selection.floor  && <p className="text-white/50 text-sm">Floor {selection.floor}</p>}
+                  {selection.flat   && <p className="text-white/50 text-sm">Unit {selection.flat.unit} · {selection.flat.type}</p>}
+                </motion.div>
               )}
             </motion.div>
 
             {/* ── Right: Form ── */}
             <motion.div
-              className="glass-dark rounded-2xl border border-white/8 p-6"
+              className="panel-grad rounded-2xl p-6"
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: 0.3 }}
@@ -177,7 +178,7 @@ export default function ContactPage({ selection, onBack }) {
                   <motion.button
                     type="submit"
                     disabled={!form.name || !form.phone}
-                    className="w-full py-3.5 bg-[#c49a3c] text-black text-sm tracking-[0.2em] uppercase font-semibold rounded-lg hover:bg-[#d4af6e] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-300 relative overflow-hidden group mt-1"
+                    className="btn-gold w-full py-3.5 text-sm tracking-[0.2em] uppercase rounded-lg disabled:opacity-40 disabled:cursor-not-allowed relative overflow-hidden group mt-1"
                     whileHover={{ scale: 1.02 }}
                     whileTap={{ scale: 0.97 }}
                   >

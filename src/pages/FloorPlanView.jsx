@@ -60,16 +60,23 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
               )}
             </AnimatePresence>
 
+            {/* the plan settles in with a slow drift, like a photograph on a lightbox */}
             <motion.img
               src={planImage}
               alt="Floor Plan"
               className="w-full h-full object-contain p-6"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: imgLoaded ? 1 : 0 }}
-              transition={{ duration: 0.5 }}
+              initial={{ opacity: 0, scale: 1.06, filter: 'blur(6px)' }}
+              animate={{ opacity: imgLoaded ? 1 : 0, scale: imgLoaded ? 1 : 1.06, filter: imgLoaded ? 'blur(0px)' : 'blur(6px)' }}
+              transition={{ duration: 1.3, ease: [0.22, 1, 0.36, 1] }}
               onLoad={() => setImgLoaded(true)}
               onError={() => setImgError(true)}
             />
+            {/* a light sweep across the plan once it is in */}
+            {imgLoaded && (
+              <motion.div className="absolute inset-0 pointer-events-none"
+                style={{ background: 'linear-gradient(110deg, transparent 40%, rgba(230,207,147,0.14) 50%, transparent 60%)' }}
+                initial={{ x: '-120%' }} animate={{ x: '120%' }} transition={{ delay: 0.5, duration: 1.4, ease: 'easeInOut' }} />
+            )}
 
             {/* Fallback grid if no image */}
             {imgError && (
@@ -80,12 +87,13 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
               </div>
             )}
 
-            {/* Subtle gold corner accents */}
-            {['top-2 left-2', 'top-2 right-2', 'bottom-2 left-2', 'bottom-2 right-2'].map((pos) => (
-              <div key={pos} className={`absolute ${pos} w-4 h-4`}>
-                <div className="absolute top-0 left-0 w-full h-px bg-[#c49a3c]/40" />
-                <div className="absolute top-0 left-0 w-px h-full bg-[#c49a3c]/40" />
-              </div>
+            {/* Gold corner accents, drawn in */}
+            {[['top-2 left-2', 'rotate-0'], ['top-2 right-2', 'rotate-90'], ['bottom-2 right-2', 'rotate-180'], ['bottom-2 left-2', '-rotate-90']].map(([pos, rot], i) => (
+              <motion.div key={pos} className={`absolute ${pos} w-5 h-5 ${rot}`}
+                initial={{ opacity: 0, scale: 0.4 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.5 + i * 0.1, duration: 0.6 }}>
+                <div className="absolute top-0 left-0 w-full h-px" style={{ background: 'linear-gradient(90deg, #e6cf93, rgba(196,154,60,0))' }} />
+                <div className="absolute top-0 left-0 w-px h-full" style={{ background: 'linear-gradient(180deg, #e6cf93, rgba(196,154,60,0))' }} />
+              </motion.div>
             ))}
           </div>
         </motion.div>
@@ -98,8 +106,8 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
           transition={{ delay: 0.3 }}
         >
           <div>
-            <p className="text-[#c49a3c] text-xs tracking-[0.35em] uppercase mb-2">Unit Details</p>
-            <h2 className="text-white text-2xl md:text-3xl font-light mb-1" style={{ fontFamily: "'Playfair Display', serif" }}>
+            <p className="text-gold-grad text-xs tracking-[0.35em] uppercase mb-2">Unit Details</p>
+            <h2 className="text-white text-2xl md:text-3xl font-light mb-1" style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>
               {flat?.type}
             </h2>
             <p className="text-white/40 text-sm">
@@ -109,7 +117,7 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
           </div>
 
           {/* Key stats */}
-          <div className="glass-dark rounded-xl p-4 flex gap-4 border border-white/8">
+          <div className="panel-grad rounded-xl p-4 flex gap-4">
             <div>
               <p className="text-white/35 text-xs uppercase tracking-wider mb-1">Area</p>
               <p className="text-white text-xl font-light">{flat?.area}</p>
@@ -121,7 +129,7 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
           </div>
 
           {/* Room breakdown — desktop only (too many rows on mobile) */}
-          <div className="hidden md:block glass-dark rounded-xl p-4 border border-white/8">
+          <div className="hidden md:block panel-grad rounded-xl p-4">
             <p className="text-white/35 text-xs uppercase tracking-wider mb-3">Room Breakdown</p>
             <div className="space-y-2.5">
               {ROOMS.map((room, i) => (
@@ -140,13 +148,11 @@ export default function FloorPlanView({ selection, onWalkthrough, onBack }) {
           </div>
 
           <motion.button
-            className="w-full py-4 bg-[#c49a3c] text-black text-sm tracking-[0.2em] uppercase font-semibold rounded-lg hover:bg-[#d4af6e] transition-colors duration-300 relative overflow-hidden group"
+            className="btn-gold w-full py-4 text-sm tracking-[0.2em] uppercase rounded-lg relative overflow-hidden group"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
             onClick={onWalkthrough}
           >
-            {/* Shine sweep */}
-            <span className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700" />
             <span className="relative">Start Walkthrough →</span>
           </motion.button>
         </motion.div>

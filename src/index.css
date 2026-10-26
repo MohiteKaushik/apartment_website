@@ -1,7 +1,22 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&display=swap');
+/* Self-hosted type (no request to Google Fonts): Poppins for everything,
+   Cormorant Garamond italic only for the gold accent words in headlines. */
+@import '@fontsource/poppins/latin-300.css';
+@import '@fontsource/poppins/latin-400.css';
+@import '@fontsource/poppins/latin-500.css';
+@import '@fontsource/poppins/latin-600.css';
+@import '@fontsource/cormorant-garamond/latin-400-italic.css';
+@import '@fontsource/cormorant-garamond/latin-500-italic.css';
+
+:root {
+  --font-sans: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Poppins', system-ui, sans-serif;
+  --font-accent: 'Cormorant Garamond', Georgia, serif;
+  --gold: #c49a3c;
+  --gold-light: #e6cf93;
+}
 
 * {
   box-sizing: border-box;
@@ -11,7 +26,7 @@ body {
   margin: 0;
   background: #0a0a0a;
   color: #ffffff;
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow-x: hidden;
@@ -42,4 +57,82 @@ body {
 ::-webkit-scrollbar-thumb {
   background: #c49a3c;
   border-radius: 2px;
+}
+
+/* Headlines: Poppins medium with tight tracking; the italic accent word
+   inside them is Cormorant, a little larger so the x-heights match. */
+.display {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.display .accent, .accent {
+  font-family: var(--font-accent);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
+  font-size: 1.12em;
+  line-height: 0.9;
+  color: var(--gold-light);
+}
+
+/* ── Buttons ─────────────────────────────────────────────
+   .btn-gold   the primary action: brushed-gold gradient, dark text,
+               a light sweep on hover
+   .btn-ghost  the secondary: hairline border that warms to gold       */
+.btn-gold {
+  position: relative;
+  overflow: hidden;
+  color: #140f05;
+  background: linear-gradient(135deg, #f1dfae 0%, #d8b561 38%, #c49a3c 62%, #a9802c 100%);
+  box-shadow: 0 10px 30px rgba(196, 154, 60, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  transition: transform 0.25s ease, box-shadow 0.25s ease, filter 0.25s ease;
+}
+.btn-gold::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.45) 50%, transparent 65%);
+  transform: translateX(-120%);
+  transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.btn-gold:hover { transform: translateY(-1px); box-shadow: 0 14px 36px rgba(196, 154, 60, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.4); filter: saturate(1.05); }
+.btn-gold:hover::after { transform: translateX(120%); }
+.btn-gold:active { transform: translateY(0); }
+.btn-gold:disabled { opacity: 0.45; filter: grayscale(0.4); box-shadow: none; }
+
+.btn-ghost {
+  color: rgba(255, 255, 255, 0.78);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: border-color 0.3s ease, color 0.3s ease, background 0.3s ease, transform 0.25s ease;
+}
+.btn-ghost:hover { color: #e6cf93; border-color: rgba(196, 154, 60, 0.65); background: linear-gradient(180deg, rgba(196, 154, 60, 0.14), rgba(196, 154, 60, 0.05)); transform: translateY(-1px); }
+
+/* Gold gradient text (eyebrows, numbers) */
+.text-gold-grad {
+  background: linear-gradient(120deg, #e6cf93, #c49a3c 60%, #d8b561);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Cards and panels: a hairline gradient border that catches the light */
+.panel-grad {
+  position: relative;
+  background: linear-gradient(180deg, rgba(14, 13, 12, 0.78), rgba(8, 8, 10, 0.9));
+}
+.panel-grad::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(180deg, rgba(230, 207, 147, 0.35), rgba(196, 154, 60, 0.08) 40%, rgba(255, 255, 255, 0.06));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
 }

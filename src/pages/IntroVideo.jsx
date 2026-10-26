@@ -51,17 +51,21 @@ export default function IntroVideo({ onComplete }) {
           <p className="text-[#c49a3c] text-sm tracking-[0.3em] uppercase font-light">
             Welcome to
           </p>
-          <h1 className="text-white text-6xl md:text-8xl font-light tracking-tight"
-            style={{ fontFamily: "'Playfair Display', serif" }}>
+          <motion.h1 className="text-white text-6xl md:text-8xl tracking-[0.18em] uppercase"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 500 }}
+            initial={{ opacity: 0, letterSpacing: '0.5em' }} animate={{ opacity: 1, letterSpacing: '0.18em' }}
+            transition={{ delay: 0.5, duration: 1.6, ease: [0.22, 1, 0.36, 1] }}>
             Vayam
-          </h1>
+          </motion.h1>
           <p className="text-white/60 text-lg font-light max-w-md">
             Experience luxury living redefined. Where architecture meets artistry.
           </p>
-          <button onClick={handleStart}
-            className="mt-4 px-10 py-4 border border-[#c49a3c] text-[#c49a3c] text-sm tracking-[0.2em] uppercase font-medium hover:bg-[#c49a3c] hover:text-black transition-all duration-500 rounded-sm">
+          <motion.button onClick={handleStart}
+            className="btn-gold mt-4 px-10 py-4 text-sm tracking-[0.22em] uppercase font-medium rounded-full"
+            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.1, duration: 0.8 }}
+            whileTap={{ scale: 0.97 }}>
             Begin Experience
-          </button>
+          </motion.button>
           <button onClick={handleSkip}
             className="text-white/30 text-xs tracking-widest uppercase hover:text-white/60 transition-colors duration-300">
             Skip

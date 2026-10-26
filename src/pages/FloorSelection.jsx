@@ -32,8 +32,8 @@ export default function FloorSelection({ tower, hovered, onHover, onSelect, touc
         </motion.p>
         <motion.h2 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7, duration: 0.8 }}
           className="mt-1.5 sm:mt-2 text-white font-light leading-none text-[26px] sm:text-[38px]"
-          style={{ fontFamily: "'Playfair Display', serif" }}>
-          Select a <span className="italic text-[#e6cf93]">floor</span>
+          style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>
+          Select a <span className="accent">floor</span>
         </motion.h2>
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.85, duration: 0.8 }}
           className="hidden sm:block mt-3 text-white/45 text-[13px] font-light leading-relaxed">
@@ -85,11 +85,11 @@ export default function FloorSelection({ tower, hovered, onHover, onSelect, touc
                 style={{ background: 'rgba(196,154,60,0.08)', border: '1px solid rgba(196,154,60,0.25)' }}
                 initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }} transition={{ duration: 0.2 }}>
                 <p className="text-[#c49a3c] text-[10px] tracking-[0.3em] uppercase">Floor {hovered}</p>
-                <p className="text-white text-[15px] font-light mt-0.5" style={{ fontFamily: "'Playfair Display', serif" }}>{zone.label} zone</p>
+                <p className="text-white text-[15px] font-light mt-0.5" style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>{zone.label} zone</p>
                 <p className="text-white/45 text-[11px] mt-0.5">4 residences · {zone.bhk}</p>
                 {touch && (
                   <button onClick={() => onSelect(hovered)}
-                    className="mt-2.5 w-full rounded-md bg-[#c49a3c] text-black text-[11px] tracking-[0.2em] uppercase py-2">
+                    className="btn-gold mt-2.5 w-full rounded-md text-[11px] tracking-[0.2em] uppercase py-2.5">
                     Explore floor {hovered} →
                   </button>
                 )}

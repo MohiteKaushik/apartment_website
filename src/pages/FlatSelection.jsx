@@ -28,8 +28,8 @@ export default function FlatSelection({ tower, floor, hovered, onHover, onSelect
         </motion.p>
         <motion.h2 initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9, duration: 0.8 }}
           className="mt-1.5 sm:mt-2 text-white font-light leading-none text-[26px] sm:text-[38px]"
-          style={{ fontFamily: "'Playfair Display', serif" }}>
-          Select a <span className="italic text-[#e6cf93]">home</span>
+          style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' }}>
+          Select a <span className="accent">home</span>
         </motion.h2>
         <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.05, duration: 0.8 }}
           className="hidden sm:block mt-3 text-white/45 text-[13px] font-light leading-relaxed">
@@ -59,7 +59,7 @@ export default function FlatSelection({ tower, floor, hovered, onHover, onSelect
                 <div className="relative flex items-center justify-between gap-3">
                   <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     <span className="text-[22px] sm:text-[26px] font-light leading-none w-8"
-                      style={{ fontFamily: "'Playfair Display', serif", color: hot ? '#e6cf93' : 'rgba(255,255,255,0.5)' }}>
+                      style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em', color: hot ? '#e6cf93' : 'rgba(255,255,255,0.5)' }}>
                       {flat.unit}
                     </span>
                     <div className="min-w-0">
@@ -70,7 +70,7 @@ export default function FlatSelection({ tower, floor, hovered, onHover, onSelect
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <span className="text-[#c49a3c] text-[13px] font-light">{flat.price}</span>
                     <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all duration-300
-                      ${hot ? 'bg-[#c49a3c] text-black' : 'border border-white/20 text-white/60'}`}>→</span>
+                      ${hot ? 'btn-gold' : 'border border-white/20 text-white/60'}`}>→</span>
                   </div>
                 </div>
               </motion.button>
