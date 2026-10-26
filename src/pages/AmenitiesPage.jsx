@@ -5,6 +5,7 @@ import { useGLTF, OrbitControls, Environment } from '@react-three/drei';
 import { XR, XROrigin, createXRStore } from '@react-three/xr';
 import * as THREE from 'three';
 import LoadingSpinner from '../components/LoadingSpinner';
+import BackButton from '../components/BackButton';
 
 /* Module-level XR store — separate instance from the apartment walkthrough */
 const amenityXRStore = createXRStore({ emulate: false });
@@ -41,11 +42,11 @@ const AMENITIES = [
   { id: 'gym',    category: 'health', icon: '🏋', name: 'Clubhouse Gym',
     desc: 'Fully equipped fitness centers with weights, cardio machines, and separate yoga/meditation decks.',
     image: '/assets/images/amenities/amenity_gym.jpg',
-    model: '/assets/Amenities/gym.glb', modelLabel: 'Fitness Center' },
+    model: '/assets/Amenities/gym.glb', modelLabel: 'Fitness Center', dollhouse: true },
   { id: 'pool',   category: 'health', icon: '🏊', name: 'Swimming Pools',
     desc: 'Separate pools with luxury complexes featuring temperature-controlled indoor options.',
     image: '/assets/images/amenities/amenity_pool.jpg',
-    model: '/assets/Amenities/pool.glb', modelLabel: 'Swimming Pool' },
+    model: '/assets/Amenities/pool.glb', modelLabel: 'Swimming Pool', dollhouse: true },
   { id: 'sports', category: 'health', icon: '🏸', name: 'Sports Courts',
     desc: 'Multi-purpose courts for badminton (often indoor), tennis, and basketball.',
     image: '/assets/images/amenities/amenity_sports.jpg',
@@ -87,13 +88,31 @@ const COUNT_3D  = AMENITIES.filter(a => a.model).length;
    Uses useFrame (not useEffect) so that camera + OrbitControls
    refs are guaranteed to be live when we call update().
 ───────────────────────────────────────────────────────── */
-function AmenityModelScene({ modelPath, orbitRef, onLoaded }) {
+function AmenityModelScene({ modelPath, orbitRef, onLoaded, dollhouse = false, roofOff = true }) {
   const { scene } = useGLTF(modelPath);
   const groupRef   = useRef();
-  const { camera } = useThree();
+  const { camera, gl } = useThree();
   const doneRef    = useRef(false);
   const cbRef      = useRef(onLoaded);
+  const planeRef   = useRef(new THREE.Plane(new THREE.Vector3(0, -1, 0), 1e6));
+  const cutRef     = useRef({ on: 1e6, off: 1e6 });
   useEffect(() => { cbRef.current = onLoaded; }, [onLoaded]);
+
+  /* Dollhouse: the gym and the pool are closed boxes, so their roof is
+     clipped away and the camera looks in from above. */
+  useEffect(() => {
+    if (!dollhouse) return undefined;
+    gl.localClippingEnabled = true;
+    const mats = new Set();
+    scene.traverse((c) => { if (c.isMesh) (Array.isArray(c.material) ? c.material : [c.material]).forEach((m) => mats.add(m)); });
+    mats.forEach((m) => { m.clippingPlanes = [planeRef.current]; m.side = THREE.DoubleSide; });
+    return () => mats.forEach((m) => { m.clippingPlanes = null; });
+  }, [scene, dollhouse, gl]);
+  useFrame((_, dt) => {
+    if (!dollhouse) return;
+    const target = roofOff ? cutRef.current.on : cutRef.current.off;
+    planeRef.current.constant += (target - planeRef.current.constant) * (1 - Math.exp(-dt * 4));
+  });
 
   useFrame(() => {
     // Wait until both the group AND OrbitControls refs are ready
@@ -113,9 +132,14 @@ function AmenityModelScene({ modelPath, orbitRef, onLoaded }) {
     // Shift group so the model is centred at world origin
     groupRef.current.position.sub(center);
 
-    // Position camera closer — roughly 1x model size away
-    const dist = maxDim * 1.0;
-    camera.position.set(dist * 0.62, Math.max(dist * 0.28, 1.2), dist * 0.62);
+    // Position camera closer — roughly 1x model size away; from higher up
+    // for a dollhouse, whose roof is cut off a little above the furniture
+    const dist = maxDim * (dollhouse ? 1.15 : 1.0);
+    if (dollhouse) {
+      cutRef.current = { on: size.y * 0.5 - size.y * 0.42, off: size.y * 0.5 + 1 };
+      planeRef.current.constant = cutRef.current.off;
+      camera.position.set(dist * 0.5, dist * 0.62, dist * 0.5);
+    } else camera.position.set(dist * 0.62, Math.max(dist * 0.28, 1.2), dist * 0.62);
     camera.near = Math.max(0.05, maxDim * 0.004);
     camera.far  = maxDim * 100;
     camera.updateProjectionMatrix();
@@ -221,10 +245,11 @@ function AmenityVRMove({ speed = 3 }) {
 function AmenityViewer({ amenity, onClose }) {
   const [loading, setLoading]         = useState(true);
   const [isVRP, setIsVRP]             = useState(false);
+  const [roofOff, setRoofOff]         = useState(true);
   const orbitRef = useRef();
 
   useEffect(() => {
-    return amenityXRStore.subscribe(s => setIsVRP(!!s.session));
+    return amenityXRStore.subscribe(s => { setIsVRP(!!s.session); if (s.session) setRoofOff(false); });
   }, []);
 
   const handleEnterVR = async () => {
@@ -272,21 +297,26 @@ function AmenityViewer({ amenity, onClose }) {
 
         <Canvas camera={{ fov: 58, position: [10, 5, 10] }}
           shadows={false}
+          gl={{ toneMappingExposure: 0.82 }}
           dpr={Math.min(window.devicePixelRatio, 1.5)}
           performance={{ min: 0.5 }}>
           <XR store={amenityXRStore}>
-            <ambientLight intensity={0.8} />
-            <directionalLight position={[10, 18, 10]} intensity={1.6} castShadow={false} />
-            <directionalLight position={[-8, 8, -8]}  intensity={0.4} color="#aac4ff" />
-            <pointLight       position={[0, 6, 0]}    intensity={0.5} color="#c49a3c" />
+            {/* Soft, low-key lighting: the models carry their own baked light,
+                so a little fill and a gentle environment is all they need */}
+            <ambientLight intensity={0.28} />
+            <hemisphereLight args={['#cfd8e6', '#4a4238', 0.35]} />
+            <directionalLight position={[10, 18, 10]} intensity={0.75} color="#fff1dc" castShadow={false} />
+            <directionalLight position={[-8, 8, -8]}  intensity={0.22} color="#aac4ff" />
 
             <Suspense fallback={null}>
               <AmenityModelScene
                 modelPath={amenity.model}
                 orbitRef={orbitRef}
+                dollhouse={!!amenity.dollhouse}
+                roofOff={roofOff}
                 onLoaded={() => setLoading(false)}
               />
-              <Environment preset="apartment" />
+              <Environment files="/assets/env/studio.hdr" environmentIntensity={0.45} />
             </Suspense>
 
             <AdaptiveOrbitControls orbitRef={orbitRef} />
@@ -313,6 +343,15 @@ function AmenityViewer({ amenity, onClose }) {
           </motion.button>
         )}
 
+        {/* Roof on / off for the dollhouse models */}
+        {amenity.dollhouse && !isVRP && !loading && (
+          <motion.button onClick={() => setRoofOff((v) => !v)}
+            className="btn-ghost absolute bottom-6 left-[150px] sm:left-[170px] z-20 rounded-full px-4 py-2 text-[10px] tracking-[0.2em] uppercase"
+            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }}>
+            {roofOff ? 'Roof on' : 'Roof off'}
+          </motion.button>
+        )}
+
         {/* Controls hint */}
         {!isVRP && !loading && (
           <motion.div className="absolute bottom-6 right-5 z-20 text-right"
@@ -331,7 +370,7 @@ function AmenityViewer({ amenity, onClose }) {
    Page pieces
 ───────────────────────────────────────────────────────── */
 const ease = [0.22, 1, 0.36, 1];
-const serif = { fontFamily: "'Playfair Display', serif" };
+const serif = { fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em' };
 
 /* Appears when scrolled into view */
 function Reveal({ children, className = '', delay = 0, y = 22, style }) {
@@ -370,7 +409,7 @@ function FeatureCard({ amenity, index, onOpen }) {
             <h3 className="text-white font-light text-[22px] sm:text-[26px] leading-tight mt-1" style={serif}>{amenity.modelLabel || amenity.name}</h3>
           </div>
           <span className={`flex-shrink-0 flex items-center gap-2 text-[10px] tracking-[0.25em] uppercase transition-colors duration-300 ${hot ? 'text-[#c49a3c]' : 'text-white/60'}`}>
-            Enter <span className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${hot ? 'bg-[#c49a3c] text-black' : 'border border-white/25'}`}>→</span>
+            Enter <span className={`w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300 ${hot ? 'btn-gold' : 'border border-white/25'}`}>→</span>
           </span>
         </div>
       </motion.button>
@@ -444,9 +483,8 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
                  borderBottom: `1px solid ${scrolled ? 'rgba(255,255,255,0.07)' : 'transparent'}`, transition: 'background 0.5s, border-color 0.5s' }}
         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.8 }}>
         <div className="flex items-center gap-3">
-          <motion.button onClick={onBack} className="text-white/45 hover:text-[#c49a3c] transition-colors leading-none" style={{ fontSize: 22 }}
-            whileHover={{ x: -4 }} whileTap={{ scale: 0.9 }} title="Go back">←</motion.button>
-          <span className="text-white text-lg sm:text-xl font-light tracking-[0.25em]" style={serif}>VAYAM</span>
+          <BackButton onClick={onBack} label="Towers" compact />
+          <span className="text-white text-[17px] sm:text-xl tracking-[0.28em]" style={{ ...serif, letterSpacing: '0.28em' }}>VAYAM</span>
         </div>
         <div className="hidden md:flex items-center gap-6">
           {CATEGORIES.map(c => (
@@ -481,7 +519,7 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
               className="text-[#c49a3c] text-[10px] sm:text-[11px] tracking-[0.4em] uppercase">Amenities · {AMENITIES.length} spaces</motion.p>
             <motion.h1 initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.65, duration: 1, ease }}
               className="mt-3 text-white font-light leading-[1.02] text-[40px] sm:text-[64px] lg:text-[76px]" style={{ ...serif, textShadow: '0 2px 30px rgba(0,0,0,0.5)' }}>
-              Life, between<br /><span className="italic text-[#e6cf93]">the towers</span>
+              Life, between<br /><span className="accent">the towers</span>
             </motion.h1>
             <motion.p initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.9, duration: 0.9, ease }}
               className="mt-4 sm:mt-6 text-white/65 text-[13px] sm:text-[16px] font-light leading-relaxed max-w-[460px]">
@@ -510,7 +548,7 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
             <div>
               <p className="text-[#c49a3c] text-[10px] tracking-[0.4em] uppercase">Walk through</p>
               <h2 className="mt-2 text-white font-light text-[28px] sm:text-[40px] leading-none" style={serif}>
-                Four spaces, <span className="italic text-[#e6cf93]">in 3D and VR</span>
+                Four spaces, <span className="accent">in 3D and VR</span>
               </h2>
             </div>
             <p className="hidden sm:block text-white/40 text-[13px] font-light max-w-[320px] leading-relaxed">
@@ -553,14 +591,14 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
           <Reveal className="relative max-w-[560px]">
             <p className="text-[#c49a3c] text-[10px] tracking-[0.4em] uppercase">See it in person</p>
             <h2 className="mt-3 text-white font-light text-[30px] sm:text-[44px] leading-tight" style={serif}>
-              Come for a walk <span className="italic text-[#e6cf93]">around the podium</span>
+              Come for a walk <span className="accent">around the podium</span>
             </h2>
             <p className="mt-4 text-white/55 text-[13px] sm:text-[15px] font-light leading-relaxed">
               Our team will show you the clubhouse, the pools and the lake walk, and answer anything about the homes.
             </p>
             <div className="mt-7 flex flex-wrap gap-3">
               {onEnquire && (
-                <motion.button onClick={onEnquire} className="rounded-full bg-[#c49a3c] text-black text-[11px] tracking-[0.25em] uppercase px-6 py-3"
+                <motion.button onClick={onEnquire} className="btn-gold rounded-full text-[11px] tracking-[0.25em] uppercase px-6 py-3"
                   whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>Book a visit →</motion.button>
               )}
               <motion.button onClick={onBack} className="rounded-full text-white/70 text-[11px] tracking-[0.25em] uppercase px-6 py-3"
