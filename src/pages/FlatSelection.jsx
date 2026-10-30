@@ -1,19 +1,25 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import FLATS from '../data/flats';
+import { STATUS, statusOf } from '../data/availability';
+import { planThumbnail } from '../components/building/planCanvas';
 
 /* ── Home picker ─────────────────────────────────────────
    The panel beside the cut-open tower: the four homes on the chosen
-   floor. Hovering a card lights that home on the 3D floor plate (and the
-   other way round); clicking opens its floor plan. */
+   floor, each with a glimpse of its plan and its sales status. Hovering
+   a card lights that home on the 3D floor plate (and the other way
+   round); clicking opens its floor plan. */
 
 const ease = [0.22, 1, 0.36, 1];
 
 export default function FlatSelection({ tower, floor, hovered, onHover, onSelect, touch }) {
+  const towerId = tower?.id || 'A';
+  const thumbs = useMemo(() => Object.fromEntries(FLATS.map((f) => [f.id, planThumbnail(f.type)])), []);
+
   return (
     <motion.div
       className="absolute z-20 flex flex-col pointer-events-auto
-                 inset-x-0 bottom-0 h-[50%] rounded-t-3xl
+                 inset-x-0 bottom-0 h-[52%] rounded-t-3xl
                  sm:inset-x-auto sm:right-0 sm:top-0 sm:bottom-0 sm:h-auto sm:w-[46%] lg:w-[420px] sm:rounded-none"
       style={{ background: 'linear-gradient(180deg, rgba(6,6,8,0.82), rgba(6,6,8,0.9))',
                backdropFilter: 'blur(22px)', WebkitBackdropFilter: 'blur(22px)',
@@ -36,42 +42,56 @@ export default function FlatSelection({ tower, floor, hovered, onHover, onSelect
           Four homes around a central lift and stair core. {touch ? 'Tap' : 'Hover'} one to see it on the floor plate.
         </motion.p>
 
-        <div className="mt-4 sm:mt-7 flex flex-col gap-2 sm:gap-2.5">
+        <div className="mt-4 sm:mt-6 flex flex-col gap-2 sm:gap-2.5">
           {FLATS.map((flat, i) => {
             const hot = hovered === flat.id;
+            const status = statusOf(towerId, floor, flat.id);
+            const st = STATUS[status];
+            const sold = status === 'sold';
             return (
-              <motion.button key={flat.id}
+              <motion.button key={flat.id} aria-label={`Home ${flat.unit}, ${flat.type}`}
                 initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: 1.0 + i * 0.1, duration: 0.8, ease }}
                 onHoverStart={() => !touch && onHover(flat.id)} onHoverEnd={() => !touch && onHover(null)}
-                onFocus={() => onHover(flat.id)}
+                onFocus={() => !touch && onHover(flat.id)}
                 onClick={() => onSelect(flat)}
                 whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}
-                className="relative text-left rounded-xl overflow-hidden px-4 py-3 sm:px-5 sm:py-4 transition-colors duration-300"
+                className="relative w-full text-left rounded-xl overflow-hidden px-3 py-2.5 sm:px-4 sm:py-3 transition-colors duration-300"
                 style={{
                   background: hot ? 'rgba(196,154,60,0.1)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : 'rgba(255,255,255,0.1)'}`,
+                  border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : sold ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)'}`,
                   boxShadow: hot ? '0 0 30px rgba(196,154,60,0.16)' : 'none',
+                  opacity: sold && !hot ? 0.62 : 1,
                 }}>
                 <motion.div className="absolute inset-0 pointer-events-none"
                   style={{ background: 'linear-gradient(100deg, transparent 30%, rgba(196,154,60,0.14) 50%, transparent 70%)' }}
                   initial={{ x: '-120%' }} animate={{ x: hot ? '120%' : '-120%' }} transition={{ duration: 0.8, ease }} />
-                <div className="relative flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                    <span className="text-[22px] sm:text-[26px] font-light leading-none w-8"
-                      style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em', color: hot ? '#e6cf93' : 'rgba(255,255,255,0.5)' }}>
-                      {flat.unit}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-white text-[14px] sm:text-[15px]">{flat.type}</p>
-                      <p className="text-white/40 text-[11px] sm:text-xs mt-0.5">{flat.area} · {flat.facing} facing</p>
+                {/* a strip of the home's status colour down the left edge */}
+                <span className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: st.colour, opacity: hot ? 1 : 0.7 }} />
+                <div className="relative flex items-center gap-3 sm:gap-3.5">
+                  {/* the plan */}
+                  <div className="relative flex-shrink-0 w-[76px] h-[38px] sm:w-[92px] sm:h-[46px] rounded-md overflow-hidden transition-transform duration-300"
+                    style={{ border: `1px solid ${hot ? 'rgba(230,207,147,0.6)' : 'rgba(255,255,255,0.12)'}`,
+                             transform: hot ? 'scale(1.04)' : 'scale(1)', filter: sold && !hot ? 'saturate(0.3)' : 'none' }}>
+                    {thumbs[flat.id] && <img src={thumbs[flat.id]} alt={`${flat.type} plan`} className="w-full h-full object-cover block" draggable={false} />}
+                    <span className="absolute left-1 top-0.5 text-[9px] sm:text-[10px] leading-none"
+                      style={{ fontFamily: 'var(--font-display)', fontWeight: 600, color: '#1b1409', letterSpacing: '0.04em' }}>{flat.unit}</span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-white text-[14px] sm:text-[15px] whitespace-nowrap">{flat.type}</p>
+                      <span className="flex items-center gap-1 flex-shrink-0 rounded-full px-1.5 py-[2px] text-[8px] sm:text-[8.5px] tracking-[0.16em] uppercase"
+                        style={{ color: st.colour, background: st.dim, border: `1px solid ${st.colour}55` }}>
+                        <span className="w-1 h-1 rounded-full" style={{ background: st.colour }} />{st.label}
+                      </span>
+                    </div>
+                    <div className="flex items-baseline justify-between gap-2 mt-1">
+                      <p className="text-white/40 text-[11px] sm:text-xs whitespace-nowrap truncate">{flat.area} · {flat.facing}</p>
+                      <span className="text-[13px] font-light whitespace-nowrap flex-shrink-0" style={{ color: sold ? 'rgba(255,255,255,0.35)' : '#c49a3c', textDecoration: sold ? 'line-through' : 'none' }}>{flat.price}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <span className="text-[#c49a3c] text-[13px] font-light">{flat.price}</span>
-                    <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm transition-all duration-300
-                      ${hot ? 'btn-gold' : 'border border-white/20 text-white/60'}`}>→</span>
-                  </div>
+                  <span className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-sm transition-all duration-300
+                    ${hot ? 'btn-gold' : 'border border-white/20 text-white/60'}`}>→</span>
                 </div>
               </motion.button>
             );

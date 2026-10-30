@@ -6,6 +6,7 @@ import { TOWERS, footprint, floorBase } from '../../data/towerGeometry';
 import FLATS from '../../data/flats';
 import { planLayout, wallSegments } from './planLayout';
 import { drawPlan } from './planCanvas';
+import { STATUS, statusOf } from '../../data/availability';
 
 /* ── The floor plate ─────────────────────────────────────
    A 3D plan of one storey, drawn at the real height and size of the
@@ -36,7 +37,7 @@ const WALL  = new THREE.Color('#f6f2ea');
 const WALL_HOT = new THREE.Color('#f3dc9c');
 const GOLD = new THREE.Color('#c49a3c');
 
-const unitRect = (id, L, W) => {
+export const unitRect = (id, L, W) => {
   const left = id === 'A' || id === 'D', top = id === 'A' || id === 'B';
   const u0 = left ? -0.5 : SPLIT_U, u1 = left ? SPLIT_U : 0.5;
   const v0 = top ? CORR : -0.5,     v1 = top ? 0.5 : -CORR;
@@ -81,7 +82,7 @@ function Box({ x, z, w, h, d, color, y = 0, mat, ...rest }) {
   );
 }
 
-function Unit({ flat, rect, hot, dimmed, onHover, onSelect }) {
+function Unit({ flat, rect, hot, dimmed, status, shown, onHover, onSelect }) {
   const floorMat = useRef(null), wallMats = useRef([]);
   const lit = useRef(0), dim = useRef(0);
   const { x, z, w, d, top } = rect;
@@ -135,12 +136,13 @@ function Unit({ flat, rect, hot, dimmed, onHover, onSelect }) {
 
       <Html position={[x, 0.26, z]} center zIndexRange={[12, 0]}
         style={{ pointerEvents: 'none', whiteSpace: 'nowrap', textAlign: 'center',
-                 opacity: dimmed ? 0.45 : 1, transition: 'opacity 0.3s' }}>
+                 opacity: !shown ? 0 : dimmed ? 0.45 : 1, transition: 'opacity 0.3s' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 7, padding: '5px 11px', borderRadius: 999,
                       background: hot ? 'rgba(40,30,10,0.86)' : 'rgba(8,8,10,0.62)',
                       border: `1px solid ${hot ? 'rgba(196,154,60,0.85)' : 'rgba(255,255,255,0.14)'}`,
                       backdropFilter: 'blur(6px)', transition: 'background 0.25s, border-color 0.25s, transform 0.25s',
                       transform: hot ? 'scale(1.12)' : 'scale(1)' }}>
+          <span style={{ alignSelf: 'center', width: 6, height: 6, borderRadius: 999, background: STATUS[status].colour, boxShadow: `0 0 6px ${STATUS[status].colour}` }} />
           <span style={{ fontFamily: 'var(--font-display)', fontWeight: 500, letterSpacing: '-0.02em', fontSize: 15, lineHeight: 1, color: hot ? '#e6cf93' : '#fff' }}>
             {flat.unit}
           </span>
@@ -190,7 +192,7 @@ export default function FloorPlate({ towerId, floor, visible, hoverFlat, onHover
       <Box x={0} z={0} w={L * 0.94} h={0.003} d={W * CORR * 0.55} y={0.008} color="#a39c92" />
 
       {FLATS.map((f) => (
-        <Unit key={f.id} flat={f} rect={unitRect(f.id, L, W)} hot={hoverFlat === f.id}
+        <Unit key={f.id} flat={f} rect={unitRect(f.id, L, W)} hot={hoverFlat === f.id} status={statusOf(towerId, floor, f.id)} shown={visible}
           dimmed={!!hoverFlat && hoverFlat !== f.id} onHover={onHover} onSelect={onSelect} />
       ))}
 
@@ -212,10 +214,10 @@ export default function FloorPlate({ towerId, floor, visible, hoverFlat, onHover
         <Box key={i} x={stairs.x - stairs.w / 2 + (i + 0.5) * (stairs.w / steps)} z={0}
           w={stairs.w / steps} h={(0.22 * (i + 1)) / steps} d={coreD * 0.9} color="#8f877a" />
       ))}
-      <Html position={[lift.x, 0.32, 0]} center zIndexRange={[12, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={[lift.x, 0.32, 0]} center zIndexRange={[12, 0]} style={{ pointerEvents: 'none', opacity: visible ? 1 : 0, transition: 'opacity 0.3s' }}>
         <div style={{ fontSize: 7, letterSpacing: '0.28em', color: 'rgba(255,255,255,0.8)', background: 'rgba(8,8,10,0.6)', padding: '2px 6px', borderRadius: 999 }}>LIFT</div>
       </Html>
-      <Html position={[stairs.x, 0.32, 0]} center zIndexRange={[12, 0]} style={{ pointerEvents: 'none' }}>
+      <Html position={[stairs.x, 0.32, 0]} center zIndexRange={[12, 0]} style={{ pointerEvents: 'none', opacity: visible ? 1 : 0, transition: 'opacity 0.3s' }}>
         <div style={{ fontSize: 7, letterSpacing: '0.28em', color: 'rgba(255,255,255,0.8)', background: 'rgba(8,8,10,0.6)', padding: '2px 6px', borderRadius: 999 }}>STAIRS</div>
       </Html>
     </group>

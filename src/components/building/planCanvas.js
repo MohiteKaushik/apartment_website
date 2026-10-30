@@ -157,7 +157,7 @@ function balcony(g, x, y, w, h) {
   box(g, x + w * 0.45 - 6, y + h / 2 - cs * 0.3, 12, cs * 0.6, C.wood, 3);
 }
 
-export function drawPlan(c, type) {
+export function drawPlan(c, type, { labels = true } = {}) {
   const g = c.getContext('2d');
   const W = c.width, H = c.height;
   const X = (u) => u * W, Y = (v) => v * H;
@@ -236,6 +236,7 @@ export function drawPlan(c, type) {
   if (fd) { g.fillStyle = '#c49a3c'; g.beginPath(); g.arc(X(fd.u), Y(fd.v), OUT * 0.5, 0, Math.PI * 2); g.fill(); }
 
   // room names
+  if (!labels) return;
   g.textAlign = 'center'; g.textBaseline = 'middle';
   L.rooms.filter((r) => r.label).forEach((r) => {
     const x = (X(r.u0) + X(r.u1)) / 2;
@@ -247,4 +248,19 @@ export function drawPlan(c, type) {
     if (r.type !== 'bath') { g.fillStyle = 'rgba(255,252,246,0.55)'; rrect(g, x - tw / 2 - 7, y - size * 0.75, tw + 14, size * 1.5, size * 0.75); g.fill(); }
     g.fillStyle = C.label; g.fillText(label, Math.max(x, X(r.u0) + tw / 2 + 4), y);
   });
+}
+
+/* ── A small picture of the plan for the home cards ──────
+   Drawn once per type at 2:1 and kept as a data URL. */
+const thumbs = new Map();
+export function planThumbnail(type, w = 480, h = 240) {
+  const key = `${type}:${w}x${h}`;
+  if (thumbs.has(key)) return thumbs.get(key);
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  drawPlan(c, type, { labels: false });
+  const url = c.toDataURL('image/png');
+  thumbs.set(key, url);
+  return url;
 }

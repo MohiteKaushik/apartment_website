@@ -7,6 +7,8 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import TowerModel from '../components/building/TowerModel';
 import CameraRig from '../components/building/CameraRig';
 import FloorPlate from '../components/building/FloorPlate';
+import AvailabilityOverlay from '../components/building/AvailabilityOverlay';
+import DayCycle, { TimeOfDayControl, BACKDROP_FILTER, BACKDROP_TINT, todKey } from '../components/building/DayCycle';
 import FloorSelection from './FloorSelection';
 import FlatSelection from './FlatSelection';
 
@@ -75,6 +77,8 @@ export default function TowerSelection({
   const [zoomFlat, setZoomFlat] = useState(null);  // diving onto a chosen home
   const [ready, setReady]   = useState(false);
   const [hintGone, setHintGone] = useState(false);
+  const [tod, setTod] = useState(0);               // time of day: 0 day · 0.5 sunset · 1 night
+  const [showAvail, setShowAvail] = useState(true); // availability blocks on the tower
   const backdropRef = useRef(null), blurRef = useRef(null), vignetteRef = useRef(null), fxRef = useRef(null), growRef = useRef(null);
   useEffect(() => { fxRef.current = { blur: blurRef.current, vignette: vignetteRef.current }; }, []);
   const touch = useMemo(() => typeof window !== 'undefined' && window.matchMedia?.('(hover: none)').matches, []);
@@ -90,7 +94,7 @@ export default function TowerSelection({
   stateRef.current = {
     view: diving ? 'amenities' : zoomFlat ? 'unitZoom' : view, towerId, floor: selection.floor || null,
     flatId: zoomFlat?.id || selection.flat?.id || null,
-    hoverTower, hoverFloor, hoverFlat: zoomFlat ? zoomFlat.id : hoverFlat, hoverAmenities,
+    hoverTower, hoverFloor, hoverFlat: zoomFlat ? zoomFlat.id : hoverFlat, hoverAmenities, tod,
   };
 
   useEffect(() => { setHoverFloor(null); setHoverFlat(null); setHoverTower(null); setZoomFlat(null); }, [view]);
@@ -124,6 +128,8 @@ export default function TowerSelection({
       {/* Backdrop: the film's last frame, cover-cropped like the video. The
           soft copy underneath fills the edges when the hero zooms out, and
           is all that remains once the camera leaves the film's viewpoint. */}
+      {/* The photograph is graded with the time of day (see DayCycle) */}
+      <div className="absolute inset-0 pointer-events-none" style={{ filter: BACKDROP_FILTER[todKey(tod)], transition: 'filter 1.6s ease' }}>
       <img src={HERO_STILL} alt="" aria-hidden="true"
         className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
         style={{ filter: 'blur(22px) brightness(0.85)', transform: 'scale(1.12)' }} draggable={false} />
@@ -139,6 +145,8 @@ export default function TowerSelection({
             draggable={false} />
         </div>
       </motion.div>
+      </div>
+      <div className="absolute inset-0 pointer-events-none" style={{ background: BACKDROP_TINT[todKey(tod)], transition: 'background 1.6s ease' }} />
       {/* Vignette: a soft pool of light on the building, darker towards the edges */}
       <div ref={vignetteRef} className="absolute pointer-events-none" style={{ inset: '-25%', opacity: 0,
         background: 'radial-gradient(ellipse 27% 34% at 50% 52%, rgba(0,0,0,0) 32%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0.38) 100%)' }} />
@@ -156,16 +164,17 @@ export default function TowerSelection({
         onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); gl.localClippingEnabled = true; setReady(true); }}>
         {behindIntro && <WarmUp />}
         <CameraRig stateRef={stateRef} backdropRef={backdropRef} fxRef={fxRef} growRef={growRef} cinematic={cinematic} />
-        <fog attach="fog" args={['#d9e1e8', 40, 150]} />
-        <ambientLight intensity={2.2} color="#f6f7ff" />
-        <directionalLight position={[-14, 26, 10]} intensity={3.0} color="#fff3e0" />
-        <directionalLight position={[18, 10, -6]} intensity={0.9} color="#dfe8ff" />
+        <DayCycle stateRef={stateRef} />
         <ModelErrorBoundary fallback={<PlaceholderTower />}>
           <Suspense fallback={<PlaceholderTower />}>
             <TowerModel stateRef={stateRef} growRef={growRef} />
             <ContactShadows position={[0, 0.02, 0]} scale={34} blur={2.6} opacity={0.5} far={14} frames={1} />
           </Suspense>
         </ModelErrorBoundary>
+        {towerId && (view === 'floor' || view === 'unit') && (
+          <AvailabilityOverlay towerId={towerId} stateRef={stateRef} enabled={showAvail} touch={touch}
+            onHover={setHoverFloor} onSelect={(f) => onSelectFloor?.(f)} />
+        )}
         {towerId && selection.floor && (view === 'unit' || view === 'floor') && (
           <FloorPlate towerId={towerId} floor={selection.floor} visible={view === 'unit'}
             hoverFlat={zoomFlat ? zoomFlat.id : hoverFlat} onHover={(id) => !zoomFlat && setHoverFlat(id)} onSelect={pickFlat} />
@@ -294,7 +303,7 @@ export default function TowerSelection({
         {/* ── Floor picker ── */}
         {view === 'floor' && (
           <FloorSelection key="floor-ui" tower={selection.tower} hovered={hoverFloor} onHover={setHoverFloor}
-            onSelect={(f) => onSelectFloor?.(f)} touch={touch} />
+            onSelect={(f) => onSelectFloor?.(f)} touch={touch} showAvail={showAvail} onToggleAvail={() => setShowAvail((v) => !v)} />
         )}
 
         {/* ── Home picker ── */}
@@ -304,10 +313,20 @@ export default function TowerSelection({
         )}
       </AnimatePresence>
 
+      {/* Time of day */}
+      <AnimatePresence>
+        {!diving && !zoomFlat && (
+          <motion.div key="tod" className={`absolute z-20 right-3 top-[60px] sm:top-auto sm:bottom-6 ${hero ? 'sm:right-8' : 'sm:right-auto sm:left-8'}`}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: cinematic && view === 'hero' ? 4.6 : 1.2, duration: 0.8 }}>
+            <TimeOfDayControl tod={tod} onChange={setTod} />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* A small caption on the 3D side while choosing */}
       <AnimatePresence>
         {(view === 'floor' || view === 'unit') && !diving && !zoomFlat && (
-          <motion.div key="caption" className="absolute z-20 left-5 sm:left-10 bottom-[58%] sm:bottom-10 pointer-events-none"
+          <motion.div key="caption" className="absolute z-20 left-5 sm:left-10 bottom-[58%] sm:bottom-[76px] pointer-events-none"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 1.2, duration: 0.8 }}>
             <p className="text-white/35 text-[10px] tracking-[0.3em] uppercase">
               {view === 'floor' ? 'Live model · drag to look around' : `Floor ${selection.floor} · plate view`}
