@@ -12,13 +12,18 @@ import * as THREE from 'three';
    Desktop / mobile:  ‹ › buttons, room chips, ← → keys = change room
                       ▲ ▼ buttons (hold) or ↑ ↓ / W S keys = move
                       drag = look around
-   VR (Quest):        A → next room, X → previous room
+   VR (Quest):        the room menu floats up when VR starts and whenever
+                      any button but B is pressed; it hides as soon as the
+                      visitor moves (stick, A/X, a room pick) or after a few
+                      seconds, so nothing sits in front of the eyes. While
+                      the menu is up: A → next room, X → previous room,
                       point the controller at the floating panel and pull
                       the trigger to pick a room; trigger elsewhere = next
                       either stick ↕ → move forward / back
                       either stick ↔ → 45° snap turn
                       B → exit VR + back, Y → exit VR + enquire
-   The room name (and the highlighted chip) follows wherever the
+   On entering a room its name fades in at the top of the view for two
+   seconds. The room name (and the highlighted chip) follows wherever the
    visitor actually is, including after walking there themselves.
 
    Between rooms the camera follows pre-computed routes through the
@@ -69,11 +74,14 @@ const GLIDE_SPEED = 3.0;   // m/s between rooms
 const GLIDE_MIN   = 0.8;   // s
 const GLIDE_MAX   = 5.0;   // s
 const MOVE_SPEED  = 1.2;   // m/s inside a room
-const WALL_GAP    = 0.35;  // stop this far from walls / furniture
+const WALL_GAP    = 0.45;  // stop this far from walls / furniture
+const MENU_FIRST_MS = 12000;   // the VR room menu stays up this long when VR starts…
+const MENU_HOLD_MS  = 9000;    // …and this long after a button brings it back
+const TOAST_MS      = 2200;    // the room name at the top of the view
 const RAY_HEIGHTS = [0.35, 1.0];   // knee and waist height above the floor
 
 /* ── controller (lives inside <Canvas>) ────────────────── */
-export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersRef, portalRef, menuHoverRef, onStopChange, onBack, onEnquire }) {
+export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersRef, portalRef, menuHoverRef, hudRef, onStopChange, onBack, onEnquire }) {
   const { camera, gl } = useThree();
   const originRef = useRef(null);
   const portal    = useRef(null);           // crossing the front door: { t0, to, dir }
@@ -87,6 +95,7 @@ export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersR
   const btnPrev   = useRef({});
   const stickPrev = useRef({});
   const lastRoomCheck = useRef(0);
+  const wasPresenting = useRef(false);
   const ray       = useMemo(() => { const r = new THREE.Raycaster(); r.firstHitOnly = true; return r; }, []);
   const onBackRef    = useRef(onBack);
   const onEnquireRef = useRef(onEnquire);
@@ -324,8 +333,16 @@ export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersR
 
     /* ── VR input ── */
     let vrMove = 0;
+    const hud = hudRef?.current;
+    if (presenting !== wasPresenting.current) {
+      wasPresenting.current = presenting;
+      // VR has just begun: offer the room menu once, then leave the view clear
+      if (presenting && hud) { hud.menuUntil = performance.now() + MENU_FIRST_MS; hud.toastAt = performance.now(); }
+    }
     if (presenting) {
       const session = xrStore.getState().session;
+      const nowMs = performance.now();
+      const menuOpen = !!hud && nowMs < hud.menuUntil;
       if (session) {
         for (const src of session.inputSources) {
           const gp = src.gamepad;
@@ -335,6 +352,8 @@ export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersR
           if (gp.axes && gp.axes.length >= 2) {
             const sx = gp.axes.length >= 4 ? gp.axes[2] : gp.axes[0];
             const sy = gp.axes.length >= 4 ? gp.axes[3] : gp.axes[1];
+            // moving or turning puts the menu away
+            if (hud && (Math.abs(sx) > 0.6 || Math.abs(sy) > 0.25)) hud.menuUntil = 0;
             // stick ↔ → 45° snap turn (fires once per push), only when not pushing forward/back
             const dir = Math.abs(sx) > 0.6 && Math.abs(sx) > Math.abs(sy) ? Math.sign(sx) : 0;
             if (dir !== 0 && stickPrev.current[hand] !== dir) rotateOriginAroundHead(-dir * Math.PI / 4);
@@ -349,13 +368,20 @@ export function TourController({ tour, apiRef, xrStore, modelRef, extraBlockersR
               const now = gp.buttons[i].pressed;
               if (now && !btnPrev.current[key]) {
                 const isTrigger = i === 0, isAX = i === 4, isBY = i === 5;
-                // A trigger pull while pointing at the floating menu is a click
-                // on that menu (handled by the menu itself), not next / previous.
-                const onMenu = isTrigger && (menuHoverRef?.current || 0) > 0;
-                if (hand === 'right' && (isTrigger || isAX) && !onMenu) apiRef?.current?.next();
-                if (hand === 'left'  && (isTrigger || isAX) && !onMenu) apiRef?.current?.prev();
-                if (hand === 'right' && isBY) { session.end(); onBackRef.current?.(); }
-                if (hand === 'left'  && isBY) { session.end(); onEnquireRef.current?.(); }
+                if (hand === 'right' && isBY) {
+                  // B: leave VR and go back, always
+                  session.end(); onBackRef.current?.();
+                } else if (!menuOpen) {
+                  // any other button brings the room menu up
+                  if (hud) hud.menuUntil = nowMs + MENU_HOLD_MS;
+                } else {
+                  // A trigger pull while pointing at the floating menu is a click
+                  // on that menu (handled by the menu itself), not next / previous.
+                  const onMenu = isTrigger && (menuHoverRef?.current || 0) > 0;
+                  if (hand === 'right' && (isTrigger || isAX) && !onMenu) { apiRef?.current?.next(); hud.menuUntil = 0; }
+                  else if (hand === 'left' && (isTrigger || isAX) && !onMenu) { apiRef?.current?.prev(); hud.menuUntil = 0; }
+                  else if (!onMenu) hud.menuUntil = nowMs + MENU_HOLD_MS;   // keep it up a little longer
+                }
               }
               btnPrev.current[key] = now;
             }
@@ -461,14 +487,17 @@ function drawHud(ctx, W, H, tour, stopIndex, hovered, chips) {
   });
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.font = '400 23px sans-serif';
-  ctx.fillText('Point + trigger: pick a room   ·   A: next   X: previous   ·   Stick: move / turn   ·   B: exit', W / 2, H - 22);
+  ctx.fillText('Point + trigger: pick a room   ·   A: next   X: previous   ·   Stick: move / turn   ·   B: exit   ·   Any button brings this back', W / 2, H - 22);
 }
 
-export function TourHUD({ tour, stopIndex, visible, onGoTo, hoverRef }) {
+export function TourHUD({ tour, stopIndex, visible, hudRef, onGoTo, hoverRef }) {
   const { gl } = useThree();
   const ref = useRef();
+  const matRef = useRef();
   const following = useRef(true);
+  const opacity = useRef(0);
   const [hovered, setHovered] = React.useState(-1);
+  const [open, setOpen] = React.useState(false);       // hit areas live only while the menu is up
   const { texture, ctx, canvas } = useMemo(() => {
     const c = document.createElement('canvas'); c.width = HUD_W; c.height = 512;
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
@@ -485,13 +514,50 @@ export function TourHUD({ tour, stopIndex, visible, onGoTo, hoverRef }) {
     texture.needsUpdate = true;
   }, [tour, stopIndex, hovered, chips, ctx, texture, canvas, height]);
 
-  useFrame(() => {
+  /* the room name fades in at the top of the view whenever the room changes */
+  const toast = useMemo(() => {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 160;
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+    return { canvas: c, ctx: c.getContext('2d'), texture: t };
+  }, []);
+  const toastRef = useRef(), toastMat = useRef();
+  const lastStop = useRef(stopIndex);
+  useEffect(() => {
+    const g = toast.ctx;
+    g.clearRect(0, 0, 1024, 160);
+    g.fillStyle = 'rgba(8,8,8,0.78)';
+    g.beginPath(); g.roundRect(0, 0, 1024, 160, 80); g.fill();
+    g.strokeStyle = 'rgba(196,154,60,0.7)'; g.lineWidth = 4; g.stroke();
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    const outside = !!tour.stops[stopIndex].outside;
+    g.fillStyle = '#c49a3c'; g.font = '600 24px sans-serif';
+    g.fillText(outside ? 'AT THE FRONT DOOR' : `ROOM ${stopIndex} OF ${tour.stops.length - 1}`, 512, 46);
+    g.fillStyle = '#ffffff'; g.font = '500 60px sans-serif';
+    g.fillText(tour.stops[stopIndex].label, 512, 104);
+    toast.texture.needsUpdate = true;
+    if (stopIndex !== lastStop.current && hudRef?.current && gl.xr.isPresenting) hudRef.current.toastAt = performance.now();
+    lastStop.current = stopIndex;
+  }, [tour, stopIndex, toast, hudRef, gl]);
+
+  useFrame((_, dt) => {
     if (!ref.current || !gl.xr.isPresenting) return;
+    const hud = hudRef?.current || {};
+    const now = performance.now();
     const cam = gl.xr.getCamera();
     const p = new THREE.Vector3(), d = new THREE.Vector3();
     cam.getWorldPosition(p); cam.getWorldDirection(d);
     d.y = 0; d.normalize();
+
+    /* the menu: up only while asked for, fading in and out */
+    const wantOpen = visible && now < (hud.menuUntil || 0);
+    const k = 1 - Math.exp(-dt * 7);
+    const wasShown = opacity.current > 0.02;
+    opacity.current += ((wantOpen ? 1 : 0) - opacity.current) * k;
+    if (matRef.current) matRef.current.opacity = opacity.current;
+    ref.current.visible = opacity.current > 0.02;
+    if (wantOpen !== open) setOpen(wantOpen);
     const target = p.clone().addScaledVector(d, 1.7); target.y = p.y - 0.25;
+    if (wantOpen && !wasShown) { ref.current.position.copy(target); following.current = false; }   // appears where you look
     const toPanel = ref.current.position.clone().sub(p);
     const flat = toPanel.clone().setY(0);
     const angle = flat.lengthSq() > 1e-6 ? flat.angleTo(d) : Math.PI;
@@ -503,28 +569,51 @@ export function TourHUD({ tour, stopIndex, visible, onGoTo, hoverRef }) {
       if (ref.current.position.distanceTo(target) < 0.03) following.current = false;
     }
     ref.current.lookAt(p.x, ref.current.position.y, p.z);
+
+    /* the room-name toast: head-locked near the top of the view, a short fade in and out */
+    if (toastRef.current && toastMat.current) {
+      const t = now - (hud.toastAt || -1e9);
+      const a = t < 0 ? 0 : t < 300 ? t / 300 : t < TOAST_MS - 500 ? 1 : t < TOAST_MS ? (TOAST_MS - t) / 500 : 0;
+      toastMat.current.opacity = a;
+      toastRef.current.visible = a > 0.01;
+      if (a > 0.01) {
+        const look = new THREE.Vector3(); cam.getWorldDirection(look);
+        const tp = p.clone().addScaledVector(look, 1.5);
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.getWorldQuaternion(new THREE.Quaternion()));
+        tp.addScaledVector(up, 0.42);
+        toastRef.current.position.copy(tp);
+        toastRef.current.quaternion.copy(cam.getWorldQuaternion(new THREE.Quaternion()));
+      }
+    }
   });
 
   const enter = (i) => (e) => { e.stopPropagation(); setHovered(i); if (hoverRef) hoverRef.current = (hoverRef.current || 0) + 1; };
   const leave = () => { setHovered(-1); if (hoverRef) hoverRef.current = Math.max(0, (hoverRef.current || 0) - 1); };
+  const pick = (i) => (e) => { e.stopPropagation(); if (hudRef?.current) hudRef.current.menuUntil = 0; leave(); onGoTo(i); };
 
   return (
-    <group ref={ref} visible={visible} renderOrder={999}>
-      <mesh>
-        <planeGeometry args={[PANEL_W, PANEL_H]} />
-        <meshBasicMaterial map={texture} transparent depthTest={false} />
-      </mesh>
-      {/* invisible hit areas over the room buttons */}
-      {visible && chips.map((c) => (
-        <mesh key={c.i}
-          position={[px(c.x + c.w / 2) - PANEL_W / 2, PANEL_H / 2 - px(c.y + c.h / 2), 0.005]}
-          onPointerOver={enter(c.i)} onPointerOut={leave}
-          onClick={(e) => { e.stopPropagation(); onGoTo(c.i); }}>
-          <planeGeometry args={[px(c.w), px(c.h)]} />
-          <meshBasicMaterial transparent opacity={0} depthTest={false} />
+    <>
+      <group ref={ref} visible={false} renderOrder={999}>
+        <mesh>
+          <planeGeometry args={[PANEL_W, PANEL_H]} />
+          <meshBasicMaterial ref={matRef} map={texture} transparent opacity={0} depthTest={false} />
         </mesh>
-      ))}
-    </group>
+        {/* invisible hit areas over the room buttons */}
+        {open && chips.map((c) => (
+          <mesh key={c.i}
+            position={[px(c.x + c.w / 2) - PANEL_W / 2, PANEL_H / 2 - px(c.y + c.h / 2), 0.005]}
+            onPointerOver={enter(c.i)} onPointerOut={leave}
+            onClick={pick(c.i)}>
+            <planeGeometry args={[px(c.w), px(c.h)]} />
+            <meshBasicMaterial transparent opacity={0} depthTest={false} />
+          </mesh>
+        ))}
+      </group>
+      <mesh ref={toastRef} visible={false} renderOrder={998}>
+        <planeGeometry args={[0.72, 0.72 * 160 / 1024]} />
+        <meshBasicMaterial ref={toastMat} map={toast.texture} transparent opacity={0} depthTest={false} />
+      </mesh>
+    </>
   );
 }
 

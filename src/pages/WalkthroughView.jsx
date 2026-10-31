@@ -495,6 +495,7 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
   const fadeRef         = useRef(null);   // black veil used while crossing the front door
   const portalRef       = useRef({ door: { target: 0, value: 0 }, fade: (v) => { if (fadeRef.current) fadeRef.current.style.opacity = v.toFixed(3); } });
   const menuHoverRef    = useRef(0);      // >0 while a controller ray is on the VR room menu
+  const hudRef          = useRef({ menuUntil: 0, toastAt: 0 });   // when the VR room menu / room name show
   const [stopIndex, setStopIndex] = useState(0);
 
   const flatType = selection.flat?.type || '';
@@ -633,9 +634,9 @@ export default function WalkthroughView({ selection, onBack, onEnquire }) {
                     {tour ? (
                       <>
                         <TourController tour={tour} apiRef={tourApi} xrStore={xrStore} modelRef={modelRef} extraBlockersRef={corridorRef}
-                          portalRef={portalRef} menuHoverRef={menuHoverRef}
+                          portalRef={portalRef} menuHoverRef={menuHoverRef} hudRef={hudRef}
                           onStopChange={setStopIndex} onBack={onBack} onEnquire={onEnquire} />
-                        <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting}
+                        <TourHUD tour={tour} stopIndex={stopIndex} visible={isVRPresenting} hudRef={hudRef}
                           hoverRef={menuHoverRef} onGoTo={(i) => tourApi.current?.goTo(i)} />
                       </>
                     ) : (

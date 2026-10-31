@@ -24,7 +24,9 @@
        npm run tours:routes
    Re-run that after moving or adding a stop.
 
-   Positions were picked by rendering each model from the spot.
+   Positions were picked by rendering each model from the spot, then
+   nudged to keep at least half a metre from every wall and piece of
+   furniture (scratchpad harness clear.html measures the clearance).
    ───────────────────────────────────────────────────────────── */
 
 const CORRIDOR_STOP = { id: 'corridor', label: 'Lift lobby', x: 0, z: 62.2, yaw: 0, outside: true };
@@ -42,12 +44,12 @@ const TOURS = {
       { id: 'entrance',  label: 'Entrance',       x:  4.5, z: -1.2, yaw:  2.356 },
       { id: 'dining',    label: 'Dining',         x:  4.0, z: -1.5, yaw:  1.571 },
       { id: 'living',    label: 'Living Room',    x:  3.4, z:  2.6, yaw:  1.571 },
-      { id: 'bedroom3',  label: 'Bedroom 3',      x: -4.6, z:  1.4, yaw:  2.356 },
+      { id: 'bedroom3',  label: 'Bedroom 3',      x: -4.2, z:  2.1, yaw:  2.356 },
       { id: 'bedroom4',  label: 'Bedroom 4',      x: -8.9, z:  3.4, yaw:  0.9   },
-      { id: 'kitchen',   label: 'Kitchen',        x:  6.85, z: 0.85, yaw:  3.142 },
-      { id: 'bedroom2',  label: 'Bedroom 2',      x:  9.3, z:  2.2, yaw: -2.03  },
+      { id: 'kitchen',   label: 'Kitchen',        x:  6.85, z: 0.35, yaw:  3.142 },
+      { id: 'bedroom2',  label: 'Bedroom 2',      x: 10.0, z:  2.2, yaw: -2.03  },
       { id: 'mlounge',   label: 'Master Lounge',  x: 15.0, z:  1.3, yaw:  2.5   },
-      { id: 'master',    label: 'Master Bedroom', x: 16.6, z:  1.2, yaw: -1.571 },
+      { id: 'master',    label: 'Master Bedroom', x: 17.0, z:  1.2, yaw: -1.571 },
     ],
   },
 
@@ -59,9 +61,9 @@ const TOURS = {
     stops: [
       CORRIDOR_STOP,
       { id: 'hallway', label: 'Hallway',        x: -4.35, z: -4.4, yaw:  3.142 },
-      { id: 'living',  label: 'Living Room',    x: -3.0,  z:  1.2, yaw:  2.3 },
+      { id: 'living',  label: 'Living Room',    x: -4.0,  z:  1.1, yaw:  2.3 },
       { id: 'dining',  label: 'Dining',         x: -0.6,  z:  3.6, yaw:  0.9 },
-      { id: 'kitchen', label: 'Kitchen',        x: -2.6,  z:  1.0, yaw: -1.4 },
+      { id: 'kitchen', label: 'Kitchen',        x: -1.9,  z:  0.9, yaw: -1.4 },
       { id: 'master',  label: 'Master Bedroom', x: -2.0,  z: -3.2, yaw:  3.142 },
       { id: 'second',  label: 'Second Bedroom', x: -3.3,  z: -4.4, yaw: -1.09 },
       { id: 'bath',    label: 'Bathroom',       x: -5.6,  z: -2.4, yaw:  0.0 },
@@ -76,14 +78,14 @@ const TOURS = {
     door:        { x: -4.75, z: 2.5 },
     stops: [
       CORRIDOR_STOP,
-      { id: 'foyer',    label: 'Foyer',            x: -3.9, z:  2.6,  yaw: -1.571 },
+      { id: 'foyer',    label: 'Foyer',            x: -3.3, z:  2.5,  yaw: -1.571 },
       { id: 'living',   label: 'Living Room',      x:  0.0, z:  3.0,  yaw:  1.4 },
-      { id: 'dining',   label: 'Dining',           x:  3.81, z: 3.71, yaw:  0.75 },
+      { id: 'dining',   label: 'Dining',           x:  4.2, z:  2.8,  yaw:  0.75 },
       { id: 'kitchen',  label: 'Kitchen',          x:  0.2, z:  0.45, yaw: -1.4 },
       { id: 'balcony',  label: 'Balcony',          x:  4.4, z:  2.2,  yaw:  3.142 },
-      { id: 'guest',    label: 'Guest Bedroom',    x: -1.89, z: -0.79, yaw: 1.571 },
-      { id: 'children', label: 'Children Bedroom', x: -0.9, z: -3.3,  yaw:  0.94 },
-      { id: 'master',   label: 'Master Bedroom',   x:  2.8, z: -3.25, yaw:  0.0 },
+      { id: 'guest',    label: 'Guest Bedroom',    x: -2.8, z: -1.3,  yaw:  1.571 },
+      { id: 'children', label: 'Children Bedroom', x: -1.5, z: -3.8,  yaw:  0.94 },
+      { id: 'master',   label: 'Master Bedroom',   x:  3.1, z: -3.55, yaw:  0.0 },
     ],
   },
 };

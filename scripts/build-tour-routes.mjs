@@ -41,7 +41,7 @@ const CELL        = 0.10;   // m
 const LOW_HEIGHT  = 1.0;    // m — waist-height wall test
 const TALL_BELOW  = 0.15;   // tall test sits this far under eye height
 const LOW_PENALTY = 40;     // crossing a low wall costs as much as 4 m of walking
-const MIN_CLEAR   = 2;      // straightened legs keep ≥ 20 cm from walls
+const MIN_CLEAR   = 4;      // straightened legs keep ≥ 40 cm from walls
 
 // The tours file is plain ES-module source; load it without a bundler.
 const toursSrc = readFileSync(join(ROOT, 'src/data/walkthroughTours.js'), 'utf8');
