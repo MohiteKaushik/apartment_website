@@ -19,10 +19,23 @@ const GAP = 0.94;             // gaps between the blocks, so the floors read as 
 const COLOURS = Object.fromEntries(Object.entries(STATUS).map(([k, v]) => [k, new THREE.Color(v.colour)]));
 const tmp = new THREE.Object3D();
 const tmpC = new THREE.Color();
+const FILL = 0.2, EDGE = 0.85;
+/* the 12 edges of a unit box, as pairs of corners */
+const BOX_EDGES = (() => {
+  const c = [];
+  for (const x of [-0.5, 0.5]) for (const y of [-0.5, 0.5]) for (const z of [-0.5, 0.5]) c.push([x, y, z]);
+  const e = [];
+  for (let i = 0; i < 8; i++) for (let j = i + 1; j < 8; j++) {
+    const d = c[i].filter((v, k) => v !== c[j][k]).length;
+    if (d === 1) e.push([c[i], c[j]]);
+  }
+  return e;
+})();
 
 export default function AvailabilityOverlay({ towerId, stateRef, enabled, onHover, onSelect, touch }) {
   const mesh = useRef(null);
   const mat = useRef(null);
+  const lines = useRef(null), lineMat = useRef(null);
   const gl = useThree((st) => st.gl);
   const applied = useRef({ hover: undefined, enabled: undefined });
   const fade = useRef(0);
@@ -46,6 +59,26 @@ export default function AvailabilityOverlay({ towerId, stateRef, enabled, onHove
     }
     return out;
   }, [towerId]);
+
+  /* a crisp outline round every block, so the chart reads over the glass */
+  const edgeGeom = useMemo(() => {
+    const pos = new Float32Array(cells.length * 24 * 3);
+    cells.forEach((c, i) => {
+      BOX_EDGES.forEach((seg, k) => {
+        seg.forEach((corner, m) => {
+          const o = (i * 24 + k * 2 + m) * 3;
+          pos[o] = c.pos[0] + corner[0] * c.size[0];
+          pos[o + 1] = c.pos[1] + corner[1] * c.size[1];
+          pos[o + 2] = c.pos[2] + corner[2] * c.size[2];
+        });
+      });
+    });
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(cells.length * 24 * 3), 3));
+    return g;
+  }, [cells]);
+  useEffect(() => () => edgeGeom.dispose(), [edgeGeom]);
 
   /* a pointer that leaves the canvas altogether (onto the panel) lets go of the floor */
   useEffect(() => {
@@ -77,18 +110,23 @@ export default function AvailabilityOverlay({ towerId, stateRef, enabled, onHove
     const on = enabled && s.view === 'floor' && s.towerId === towerId;
 
     fade.current += ((on ? 1 : 0) - fade.current) * (1 - Math.exp(-dt * 5));
-    mat.current.opacity = 0.38 * fade.current;
+    mat.current.opacity = FILL * fade.current;
     m.visible = fade.current > 0.01;
+    if (lineMat.current) lineMat.current.opacity = EDGE * fade.current;
+    if (lines.current) lines.current.visible = m.visible;
 
     // recolour only when the hovered floor changes
     const hover = s.hoverFloor || null;
     if (applied.current.hover !== hover) {
+      const col = edgeGeom.getAttribute('color');
       cells.forEach((c, i) => {
         tmpC.copy(COLOURS[c.status]);
-        if (hover) tmpC.multiplyScalar(c.floor === hover ? 1.45 : 0.45);
+        if (hover) tmpC.multiplyScalar(c.floor === hover ? 1.6 : 0.4);
         m.setColorAt(i, tmpC);
+        for (let k = 0; k < 24; k++) col.setXYZ(i * 24 + k, tmpC.r, tmpC.g, tmpC.b);
       });
       m.instanceColor.needsUpdate = true;
+      col.needsUpdate = true;
       applied.current.hover = hover;
     }
   });
@@ -96,6 +134,10 @@ export default function AvailabilityOverlay({ towerId, stateRef, enabled, onHove
   const floorAt = (e) => (e.instanceId == null ? null : cells[e.instanceId]?.floor ?? null);
 
   return (
+    <>
+    <lineSegments ref={lines} geometry={edgeGeom} frustumCulled={false} renderOrder={6}>
+      <lineBasicMaterial ref={lineMat} vertexColors transparent opacity={0} depthWrite={false} toneMapped={false} />
+    </lineSegments>
     <instancedMesh ref={mesh} args={[undefined, undefined, cells.length]} frustumCulled={false} renderOrder={5}
       onPointerMove={(e) => { if (fade.current < 0.5) return; e.stopPropagation(); const f = floorAt(e); if (f && !touch) onHover?.(f); }}
       onPointerOut={(e) => {
@@ -117,5 +159,6 @@ export default function AvailabilityOverlay({ towerId, stateRef, enabled, onHove
       <boxGeometry args={[1, 1, 1]} />
       <meshBasicMaterial ref={mat} transparent opacity={0} depthWrite={false} toneMapped={false} />
     </instancedMesh>
+    </>
   );
 }

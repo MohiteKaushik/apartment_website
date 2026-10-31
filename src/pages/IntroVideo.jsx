@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import BRAND from '../data/brand';
 
 export default function IntroVideo({ onComplete }) {
   const videoRef   = useRef(null);
@@ -38,7 +39,10 @@ export default function IntroVideo({ onComplete }) {
 
       {/* Soft darkening only while the start screen is up — the film itself
           plays untinted so its last frame matches the page behind it. */}
-      {!started && <div className="absolute inset-0 bg-black/40" />}
+      {!started && (
+        <div className="absolute inset-0"
+          style={{ background: 'radial-gradient(ellipse 70% 60% at 50% 55%, rgba(0,0,0,0.72), rgba(0,0,0,0.5) 60%, rgba(0,0,0,0.6))' }} />
+      )}
 
       {/* Brand / start screen */}
       {!started && (
@@ -48,26 +52,32 @@ export default function IntroVideo({ onComplete }) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.4, duration: 0.8 }}
         >
-          <p className="text-[#c49a3c] text-sm tracking-[0.3em] uppercase font-light">
+          <p className="text-[#e6cf93] text-base sm:text-xl tracking-[0.34em] uppercase"
+            style={{ fontWeight: 500, textShadow: '0 2px 18px rgba(0,0,0,0.8)' }}>
             Welcome to
           </p>
-          <motion.h1 className="text-white text-6xl md:text-8xl tracking-[0.18em] uppercase"
-            style={{ fontFamily: 'var(--font-display)', fontWeight: 500 }}
+          <motion.h1 className="text-white text-6xl md:text-8xl tracking-[0.18em] uppercase leading-none"
+            style={{ fontFamily: 'var(--font-display)', fontWeight: 500, textShadow: '0 4px 40px rgba(0,0,0,0.85)' }}
             initial={{ opacity: 0, letterSpacing: '0.5em' }} animate={{ opacity: 1, letterSpacing: '0.18em' }}
             transition={{ delay: 0.5, duration: 1.6, ease: [0.22, 1, 0.36, 1] }}>
-            Vayam
+            {BRAND.name}
           </motion.h1>
-          <p className="text-white/60 text-lg font-light max-w-md">
+          <div className="flex items-center gap-4 -mt-3">
+            <span className="h-px w-10 sm:w-16" style={{ background: 'linear-gradient(90deg, transparent, #c49a3c)' }} />
+            <p className="text-[#e6cf93] text-xs sm:text-sm tracking-[0.3em] uppercase" style={{ fontWeight: 500 }}>{BRAND.tagline}</p>
+            <span className="h-px w-10 sm:w-16" style={{ background: 'linear-gradient(90deg, #c49a3c, transparent)' }} />
+          </div>
+          <p className="text-white/90 text-lg sm:text-2xl font-light max-w-lg leading-relaxed" style={{ textShadow: '0 2px 16px rgba(0,0,0,0.8)' }}>
             Experience luxury living redefined. Where architecture meets artistry.
           </p>
           <motion.button onClick={handleStart}
-            className="btn-gold mt-4 px-10 py-4 text-sm tracking-[0.22em] uppercase font-medium rounded-full"
+            className="btn-gold mt-2 px-12 py-4 text-sm sm:text-base tracking-[0.22em] uppercase font-medium rounded-full"
             initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.1, duration: 0.8 }}
             whileTap={{ scale: 0.97 }}>
             Begin Experience
           </motion.button>
           <button onClick={handleSkip}
-            className="text-white/30 text-xs tracking-widest uppercase hover:text-white/60 transition-colors duration-300">
+            className="text-white/55 text-xs tracking-widest uppercase hover:text-white transition-colors duration-300">
             Skip
           </button>
         </motion.div>

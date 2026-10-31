@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import BackButton from './BackButton';
+import BRAND from '../data/brand';
 
 const STEPS = ['Intro', 'Tower', 'Floor', 'Unit', 'Floor Plan', 'Walkthrough'];
 
@@ -18,9 +19,9 @@ export default function NavBar({ step, onBack, backLabel, transparent = false, a
       {/* Left: back + wordmark */}
       <div className="flex items-center gap-3 sm:gap-4 flex-shrink-0 min-w-0">
         {onBack && <BackButton onClick={onBack} label={backLabel || (step > 2 ? STEPS[step - 2] : 'Back')} compact />}
-        <span className="text-white text-[17px] sm:text-xl tracking-[0.28em]"
+        <span className="text-white text-[17px] sm:text-xl tracking-[0.28em] uppercase"
           style={{ fontFamily: 'var(--font-display)', fontWeight: 500 }}>
-          VAYAM
+          {BRAND.name}
         </span>
       </div>
 
@@ -69,7 +70,7 @@ export default function NavBar({ step, onBack, backLabel, transparent = false, a
           <span className="flex sm:hidden text-gold-grad text-[11px] tracking-[0.2em] uppercase">{STEPS[step - 1] || ''}</span>
         )}
         {!action && (
-          <span className="hidden sm:inline text-white/20 text-[10px] tracking-[0.25em] uppercase">Luxury Residences</span>
+          <span className="hidden sm:inline text-white/20 text-[10px] tracking-[0.25em] uppercase">{BRAND.tagline}</span>
         )}
       </div>
     </motion.nav>

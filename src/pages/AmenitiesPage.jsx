@@ -1,3 +1,4 @@
+import BRAND from '../data/brand';
 import React, { Suspense, useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
@@ -497,7 +498,7 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
         initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.8 }}>
         <div className="flex items-center gap-3">
           <BackButton onClick={onBack} label="Towers" compact />
-          <span className="text-white text-[17px] sm:text-xl tracking-[0.28em]" style={{ ...serif, letterSpacing: '0.28em' }}>VAYAM</span>
+          <span className="text-white text-[17px] sm:text-xl tracking-[0.28em] uppercase" style={{ ...serif, letterSpacing: '0.28em' }}>{BRAND.name}</span>
         </div>
         <div className="hidden md:flex items-center gap-6">
           {CATEGORIES.map(c => (
@@ -618,7 +619,7 @@ export default function AmenitiesPage({ onBack, onEnquire }) {
                 style={{ border: '1px solid rgba(255,255,255,0.2)' }} whileHover={{ scale: 1.03, color: '#fff' }} whileTap={{ scale: 0.97 }}>Back to the towers</motion.button>
             </div>
           </Reveal>
-          <p className="relative mt-14 text-white/20 text-[9px] tracking-[0.35em] uppercase">Vayam · Lakefront residences</p>
+          <p className="relative mt-14 text-white/20 text-[9px] tracking-[0.35em] uppercase">{BRAND.footer}</p>
         </section>
       </div>
 

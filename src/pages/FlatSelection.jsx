@@ -56,19 +56,20 @@ export default function FlatSelection({ tower, floor, hovered, onHover, onSelect
                 onFocus={() => !touch && onHover(flat.id)}
                 onClick={() => onSelect(flat)}
                 whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}
-                className="relative w-full text-left rounded-xl overflow-hidden px-3 py-2.5 sm:px-4 sm:py-3 transition-colors duration-300"
-                style={{
-                  background: hot ? 'rgba(196,154,60,0.1)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : sold ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)'}`,
-                  boxShadow: hot ? '0 0 30px rgba(196,154,60,0.16)' : 'none',
-                  opacity: sold && !hot ? 0.62 : 1,
-                }}>
+                className="relative w-full text-left rounded-xl overflow-hidden px-3 py-2.5 sm:px-4 sm:py-3">
+                {/* the frame is a plain element: a motion element's style lags a render behind */}
+                <span className="absolute inset-0 rounded-xl pointer-events-none transition-all duration-300"
+                  style={{
+                    background: hot ? 'rgba(196,154,60,0.1)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${hot ? 'rgba(196,154,60,0.7)' : sold ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.1)'}`,
+                    boxShadow: hot ? '0 0 30px rgba(196,154,60,0.16)' : 'none',
+                  }} />
                 <motion.div className="absolute inset-0 pointer-events-none"
                   style={{ background: 'linear-gradient(100deg, transparent 30%, rgba(196,154,60,0.14) 50%, transparent 70%)' }}
                   initial={{ x: '-120%' }} animate={{ x: hot ? '120%' : '-120%' }} transition={{ duration: 0.8, ease }} />
                 {/* a strip of the home's status colour down the left edge */}
                 <span className="absolute left-0 top-0 bottom-0 w-[3px]" style={{ background: st.colour, opacity: hot ? 1 : 0.7 }} />
-                <div className="relative flex items-center gap-3 sm:gap-3.5">
+                <div className="relative flex items-center gap-3 sm:gap-3.5 transition-opacity duration-300" style={{ opacity: sold && !hot ? 0.62 : 1 }}>
                   {/* the plan */}
                   <div className="relative flex-shrink-0 w-[76px] h-[38px] sm:w-[92px] sm:h-[46px] rounded-md overflow-hidden transition-transform duration-300"
                     style={{ border: `1px solid ${hot ? 'rgba(230,207,147,0.6)' : 'rgba(255,255,255,0.12)'}`,

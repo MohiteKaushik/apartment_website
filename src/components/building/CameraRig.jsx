@@ -106,7 +106,9 @@ export default function CameraRig({ stateRef, backdropRef, fxRef, growRef, cinem
     const base = aspect > video ? 2 * Math.atan(t * video / aspect) : deg(HERO.fovAt16x9);
     return THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(base / 2) / zoom.current));
   };
-  const heroPose = () => ({ az: HERO.az, el: HERO.el, dist: HERO.dist, look: HERO.look, fov: heroFov(), ox: 0, oy: -pan.current });
+  /* walking around the towers: the hero azimuth follows `orbit` slowly */
+  const orbit = useRef(0);
+  const heroPose = () => ({ az: HERO.az + orbit.current, el: HERO.el, dist: HERO.dist, look: HERO.look, fov: heroFov(), ox: 0, oy: -pan.current });
 
   /* drag to look (mouse + touch) */
   useEffect(() => {
@@ -154,6 +156,11 @@ export default function CameraRig({ stateRef, backdropRef, fxRef, growRef, cinem
       azOffT.current = 2.5 * k;                      // a touch of parallax
       if (t >= 1 || !hero) { settled.current = true; grow.current = 1; fx.current = 1; }
     }
+
+    /* walking around the towers (hero only): a slow, eased turn */
+    const orbitTarget = s.orbit || 0;
+    if (Math.abs(orbitTarget - orbit.current) > 0.01) orbit.current += (orbitTarget - orbit.current) * (1 - Math.exp(-dt * 1.4));
+    else orbit.current = orbitTarget;
 
     /* which pose do we want? */
     const target = hero ? heroPose() : poseFor(s, aspect);

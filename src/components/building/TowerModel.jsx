@@ -29,40 +29,21 @@ function makeTowerMaterial(base) {
     uBandH: { value: PITCH },
     uBandK: { value: 0 },
     uDim:   { value: 0 },
-    uNight: { value: 0 },     // 0 day … 1 night: the windows light up
   };
   mat.userData.u = u;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, u);
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
+      .replace('#include <common>', '#include <common>\nvarying float vWorldY;')
       .replace('#include <worldpos_vertex>',
-        '#include <worldpos_vertex>\nvWorldP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+        '#include <worldpos_vertex>\nvWorldY = (modelMatrix * vec4(transformed, 1.0)).y;');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>',
-        '#include <common>\nvarying vec3 vWorldP;\nuniform float uGlow, uBandY, uBandH, uBandK, uDim, uNight;\n' +
-        'float vhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }')
+        '#include <common>\nvarying float vWorldY;\nuniform float uGlow, uBandY, uBandH, uBandK, uDim;')
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-        float vWorldY = vWorldP.y;
         float band = (1.0 - smoothstep(uBandH * 0.5, uBandH * 0.5 + 0.05, abs(vWorldY - uBandY))) * uBandK;
         diffuseColor.rgb *= mix(1.0, 0.58, uDim * (1.0 - band));
-        totalEmissiveRadiance += vec3(${GOLD.join(',')}) * (band * 1.1 + uGlow);
-        // Night: the glass (dark, bluish in the texture) glows warm from inside,
-        // storey by storey and bay by bay, with some homes left dark.
-        // The glass: in this texture the facades are almost all window
-        // (luminance ≈ 0.04–0.08, bluish); walls and slabs sit above 0.12.
-        vec3 vtTex = diffuseColor.rgb / max(diffuse, vec3(1e-3));
-        float vtLum = dot(vtTex, vec3(0.3, 0.59, 0.11));
-        float vtGlass = (1.0 - smoothstep(0.075, 0.105, vtLum)) * step(vtTex.r, vtTex.b + 0.03);
-        // one cell per storey and window bay; a little over half are lit, each its own brightness
-        vec2 vtCell = vec2(floor(vWorldY / ${PITCH.toFixed(3)}), floor((vWorldP.x * 1.3 + vWorldP.z * 1.9) / 0.42));
-        float vtH = vhash(vtCell);
-        float vtLit = smoothstep(0.52, 0.6, vtH) * (0.35 + 0.65 * vhash(vtCell + 7.0));
-        vec3 vtWarm = mix(vec3(1.0, 0.72, 0.38), vec3(0.8, 0.88, 1.0), step(0.9, vtH));
-        // water (strongly blue) glows evenly and cool instead
-        float vtPool = step(vtTex.r * 1.6 + 0.01, vtTex.b);
-        vec3 vtNightGlow = mix(vtWarm * vtLit, vec3(0.35, 0.7, 1.0) * 0.5, vtPool);
-        totalEmissiveRadiance += vtNightGlow * vtGlass * uNight * 1.1;`);
+        totalEmissiveRadiance += vec3(${GOLD.join(',')}) * (band * 1.1 + uGlow);`);
   };
   mat.customProgramCacheKey = () => 'vayam-tower';
   const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 100);
@@ -156,11 +137,9 @@ export default function TowerModel({ stateRef, growRef }) {
     const kc = 1 - Math.exp(-dt * 3.2);   // the cut-away sweeps a little slower
     const { A, B, podium } = parts.current;
 
-    const night = Math.max(0, Math.min(1, ((s.tod ?? 0) - 0.5) / 0.5));   // 0 … 1 across sunset → night
     [['A', A], ['B', B]].forEach(([id, mesh]) => {
       if (!mesh) return;
       const u = mesh.material.userData.u;
-      u.uNight.value = damp(u.uNight.value, night, k);
       const active = s.towerId === id;
       const glowOn = s.view === 'hero' && s.hoverTower === id;
       u.uGlow.value = damp(u.uGlow.value, glowOn ? 0.5 : 0, k);
@@ -180,7 +159,6 @@ export default function TowerModel({ stateRef, growRef }) {
     if (podium) {
       const u = podium.material.userData.u;
       u.uGlow.value = damp(u.uGlow.value, s.hoverAmenities ? 0.28 : 0, k);
-      u.uNight.value = damp(u.uNight.value, night * 0.8, k);
     }
   });
 

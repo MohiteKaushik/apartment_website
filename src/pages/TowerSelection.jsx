@@ -8,7 +8,6 @@ import TowerModel from '../components/building/TowerModel';
 import CameraRig from '../components/building/CameraRig';
 import FloorPlate from '../components/building/FloorPlate';
 import AvailabilityOverlay from '../components/building/AvailabilityOverlay';
-import DayCycle, { TimeOfDayControl, BACKDROP_FILTER, BACKDROP_TINT, todKey } from '../components/building/DayCycle';
 import FloorSelection from './FloorSelection';
 import FlatSelection from './FlatSelection';
 
@@ -77,7 +76,7 @@ export default function TowerSelection({
   const [zoomFlat, setZoomFlat] = useState(null);  // diving onto a chosen home
   const [ready, setReady]   = useState(false);
   const [hintGone, setHintGone] = useState(false);
-  const [tod, setTod] = useState(0);               // time of day: 0 day · 0.5 sunset · 1 night
+  const [orbit, setOrbit] = useState(0);           // degrees the hero camera has walked around the towers
   const [showAvail, setShowAvail] = useState(true); // availability blocks on the tower
   const backdropRef = useRef(null), blurRef = useRef(null), vignetteRef = useRef(null), fxRef = useRef(null), growRef = useRef(null);
   useEffect(() => { fxRef.current = { blur: blurRef.current, vignette: vignetteRef.current }; }, []);
@@ -94,7 +93,7 @@ export default function TowerSelection({
   stateRef.current = {
     view: diving ? 'amenities' : zoomFlat ? 'unitZoom' : view, towerId, floor: selection.floor || null,
     flatId: zoomFlat?.id || selection.flat?.id || null,
-    hoverTower, hoverFloor, hoverFlat: zoomFlat ? zoomFlat.id : hoverFlat, hoverAmenities, tod,
+    hoverTower, hoverFloor, hoverFlat: zoomFlat ? zoomFlat.id : hoverFlat, hoverAmenities, orbit,
   };
 
   useEffect(() => { setHoverFloor(null); setHoverFlat(null); setHoverTower(null); setZoomFlat(null); }, [view]);
@@ -118,6 +117,7 @@ export default function TowerSelection({
   };
 
   const hero = view === 'hero' && !diving;
+  const onFilm = hero && orbit === 0;              // the photograph only fits the camera from the film's viewpoint
   const step = view === 'unit' ? 4 : view === 'floor' ? 3 : 2;
 
   return (
@@ -128,12 +128,11 @@ export default function TowerSelection({
       {/* Backdrop: the film's last frame, cover-cropped like the video. The
           soft copy underneath fills the edges when the hero zooms out, and
           is all that remains once the camera leaves the film's viewpoint. */}
-      {/* The photograph is graded with the time of day (see DayCycle) */}
-      <div className="absolute inset-0 pointer-events-none" style={{ filter: BACKDROP_FILTER[todKey(tod)], transition: 'filter 1.6s ease' }}>
+      <div className="absolute inset-0 pointer-events-none">
       <img src={HERO_STILL} alt="" aria-hidden="true"
         className="absolute inset-0 w-full h-full object-cover select-none pointer-events-none"
         style={{ filter: 'blur(22px) brightness(0.85)', transform: 'scale(1.12)' }} draggable={false} />
-      <motion.div className="absolute inset-0 pointer-events-none" animate={{ opacity: hero ? 1 : 0 }} transition={{ duration: 1.4, ease }}>
+      <motion.div className="absolute inset-0 pointer-events-none" animate={{ opacity: onFilm ? 1 : 0 }} transition={{ duration: 1.4, ease }}>
         <div ref={backdropRef} className="absolute inset-0" style={{ transformOrigin: '50% 50%', willChange: 'transform' }}>
           <img src={HERO_STILL} alt="" aria-hidden="true"
             className="absolute inset-0 w-full h-full object-cover select-none" draggable={false} />
@@ -146,13 +145,12 @@ export default function TowerSelection({
         </div>
       </motion.div>
       </div>
-      <div className="absolute inset-0 pointer-events-none" style={{ background: BACKDROP_TINT[todKey(tod)], transition: 'background 1.6s ease' }} />
       {/* Vignette: a soft pool of light on the building, darker towards the edges */}
       <div ref={vignetteRef} className="absolute pointer-events-none" style={{ inset: '-25%', opacity: 0,
         background: 'radial-gradient(ellipse 27% 34% at 50% 52%, rgba(0,0,0,0) 32%, rgba(0,0,0,0.2) 68%, rgba(0,0,0,0.38) 100%)' }} />
       {/* Away from the hero the picture steps back: darker and quieter behind the live tower */}
       <motion.div className="absolute inset-0 pointer-events-none" style={{ background: '#05060a' }}
-        animate={{ opacity: hero ? 0 : 0.5 }} transition={{ duration: 1.4, ease }} />
+        animate={{ opacity: onFilm ? 0 : 0.5 }} transition={{ duration: 1.4, ease }} />
 
       {/* Live 3D */}
       <Canvas className="absolute inset-0"
@@ -164,7 +162,10 @@ export default function TowerSelection({
         onCreated={({ gl }) => { gl.setClearColor(0x000000, 0); gl.localClippingEnabled = true; setReady(true); }}>
         {behindIntro && <WarmUp />}
         <CameraRig stateRef={stateRef} backdropRef={backdropRef} fxRef={fxRef} growRef={growRef} cinematic={cinematic} />
-        <DayCycle stateRef={stateRef} />
+        <fog attach="fog" args={['#d9e1e8', 40, 150]} />
+        <ambientLight intensity={2.2} color="#f6f7ff" />
+        <directionalLight position={[-14, 26, 10]} intensity={3.0} color="#fff3e0" />
+        <directionalLight position={[18, 10, -6]} intensity={0.9} color="#dfe8ff" />
         <ModelErrorBoundary fallback={<PlaceholderTower />}>
           <Suspense fallback={<PlaceholderTower />}>
             <TowerModel stateRef={stateRef} growRef={growRef} />
@@ -287,6 +288,34 @@ export default function TowerSelection({
               })}
             </motion.div>
 
+            {/* Walk around the towers: each tap turns the camera a step around them */}
+            {[-1, 1].map((dir) => (
+              <motion.button key={dir} onClick={() => { setOrbit((o) => o + dir * 45); setHintGone(true); }}
+                title={dir < 0 ? 'Walk around to the left' : 'Walk around to the right'}
+                aria-label={dir < 0 ? 'Turn the view left' : 'Turn the view right'}
+                className={`absolute z-20 top-[46%] sm:top-1/2 -translate-y-1/2 w-11 h-11 sm:w-12 sm:h-12 rounded-full flex items-center justify-center
+                            text-white/70 hover:text-[#e6cf93] transition-colors duration-300
+                            ${dir < 0 ? 'left-3 sm:left-10' : 'right-3 sm:right-[340px]'}`}
+                style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.18)', backdropFilter: 'blur(12px)', WebkitBackdropFilter: 'blur(12px)' }}
+                initial={{ opacity: 0, x: dir * -12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }}
+                transition={{ delay: D.hint, duration: 0.8 }} whileTap={{ scale: 0.92 }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ transform: dir > 0 ? 'scaleX(-1)' : 'none' }}>
+                  <path d="M20 12a8 8 0 1 1-2.6-5.9" /><path d="M17 3v4h4" />
+                </svg>
+              </motion.button>
+            ))}
+            <AnimatePresence>
+              {orbit !== 0 && (
+                <motion.button key="front" onClick={() => setOrbit(0)}
+                  className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[204px] sm:bottom-6 px-3 py-1.5 rounded-full text-[9.5px] tracking-[0.22em] uppercase text-white/60 hover:text-[#e6cf93] transition-colors"
+                  style={{ background: 'rgba(0,0,0,0.45)', border: '1px solid rgba(255,255,255,0.14)', backdropFilter: 'blur(10px)' }}
+                  initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.5 }}>
+                  Back to the front
+                </motion.button>
+              )}
+            </AnimatePresence>
+
             {!hintGone && (
               <motion.div key="hint" className="absolute z-20 left-1/2 -translate-x-1/2 bottom-[204px] sm:bottom-6 pointer-events-none
                                      flex items-center gap-2 px-3 py-1.5 rounded-full whitespace-nowrap"
@@ -294,7 +323,7 @@ export default function TowerSelection({
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
                 transition={{ delay: D.hint, duration: 0.8 }}>
                 <span className="w-1.5 h-1.5 rounded-full bg-[#c49a3c] animate-pulse" />
-                <span className="text-white/55 text-[10px] tracking-[0.2em] uppercase">Live 3D · drag to look around</span>
+                <span className="text-white/55 text-[10px] tracking-[0.2em] uppercase"><span className="hidden sm:inline">Live 3D · </span>the arrows walk you around the towers</span>
               </motion.div>
             )}
           </React.Fragment>
@@ -313,20 +342,10 @@ export default function TowerSelection({
         )}
       </AnimatePresence>
 
-      {/* Time of day */}
-      <AnimatePresence>
-        {!diving && !zoomFlat && (
-          <motion.div key="tod" className={`absolute z-20 right-3 top-[60px] sm:top-auto sm:bottom-6 ${hero ? 'sm:right-8' : 'sm:right-auto sm:left-8'}`}
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: cinematic && view === 'hero' ? 4.6 : 1.2, duration: 0.8 }}>
-            <TimeOfDayControl tod={tod} onChange={setTod} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
       {/* A small caption on the 3D side while choosing */}
       <AnimatePresence>
         {(view === 'floor' || view === 'unit') && !diving && !zoomFlat && (
-          <motion.div key="caption" className="absolute z-20 left-5 sm:left-10 bottom-[58%] sm:bottom-[76px] pointer-events-none"
+          <motion.div key="caption" className="absolute z-20 left-5 sm:left-10 bottom-[58%] sm:bottom-10 pointer-events-none"
             initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ delay: 1.2, duration: 0.8 }}>
             <p className="text-white/35 text-[10px] tracking-[0.3em] uppercase">
               {view === 'floor' ? 'Live model · drag to look around' : `Floor ${selection.floor} · plate view`}
